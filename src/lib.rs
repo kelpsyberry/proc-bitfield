@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+#![no_std]
 #![cfg_attr(feature = "nightly", feature(const_trait_impl))]
 #![cfg_attr(all(doc, feature = "nightly"), feature(const_mut_refs))]
 #![warn(clippy::all)]
@@ -141,8 +143,8 @@ bitfield! {
         pub raw: u16 @ ..,
 
         // Single-bit flags
-        pub vblank: bool @ 0,
-        pub hblank: bool @ 1,
+        pub vblank: bool [read_only] @ 0,
+        pub hblank: bool [write_only] @ 1,
         pub vcount_match: bool @ 2,
 
         // Multi-bit field, specified using an inclusive range
@@ -167,8 +169,8 @@ bitfield! {
         pub raw: u16 @ ..,
 
         // Single-bit flags
-        pub vblank: bool @ 0,
-        pub hblank: bool @ 1,
+        pub vblank: bool [read_only] @ 0,
+        pub hblank: bool [write_only] @ 1,
         pub vcount_match: bool @ 2,
 
         // Multi-bit field, specified using an inclusive range

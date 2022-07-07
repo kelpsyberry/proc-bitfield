@@ -173,8 +173,8 @@ impl Parse for Struct {
                         } else {
                             let ty: Type = content.parse()?;
                             check_not_duplicated!(get_ty, set_ty; ty.span());
-                            get_ty = AccessorKind::TryConv(ty.clone());
-                            set_ty = AccessorKind::TryConv(ty);
+                            get_ty = AccessorKind::Conv(ty.clone());
+                            set_ty = AccessorKind::Conv(ty);
                         }
                         let _ = content.parse::<Token![,]>();
                     }
