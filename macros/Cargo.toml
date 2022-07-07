@@ -1,0 +1,18 @@
+[package]
+name = "proc-bitfield-macros"
+version = "0.0.1"
+edition = "2021"
+description = "The supporting proc-macro library for the proc-bitfield crate"
+homepage = "https://github.com/Kelpsy/proc-bitfield"
+repository = "https://github.com/Kelpsy/proc-bitfield"
+license = "MIT OR Apache-2.0"
+
+[lib]
+proc-macro = true
+
+[features]
+nightly = []
+
+[dependencies]
+syn = { version = "1.0", features = ["full", "parsing"] }
+quote = "1.0"
