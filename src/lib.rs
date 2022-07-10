@@ -1,4 +1,4 @@
-#![doc = include_str!("../README.md")]
+#![doc = include_str!("../docs.md")]
 #![no_std]
 #![cfg_attr(feature = "nightly", feature(const_trait_impl))]
 #![cfg_attr(all(doc, feature = "nightly"), feature(const_mut_refs))]
