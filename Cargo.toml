@@ -3,7 +3,7 @@ members = ["macros"]
 
 [package]
 name = "proc-bitfield"
-version = "0.0.2"
+version = "0.1.0"
 edition = "2021"
 description = "A crate to expressively declare bitfield-like structs"
 homepage = "https://github.com/Kelpsy/proc-bitfield"
