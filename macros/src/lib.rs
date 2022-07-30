@@ -111,78 +111,73 @@ impl Parse for Struct {
             #[cfg(feature = "nightly")]
             let is_const = input.parse::<Token![const]>().is_ok();
             let ty = input.parse()?;
-            let (get_ty, set_ty) = {
-                let lookahead = input.lookahead1();
-                if lookahead.peek(token::Bracket) {
-                    let content;
-                    bracketed!(content in input);
-                    let mut get_ty = AccessorKind::None;
-                    let mut set_ty = AccessorKind::None;
-                    macro_rules! check_not_duplicated {
-                        ($($ident: ident),*; $span: expr) => {
-                            if $(!matches!(&$ident, AccessorKind::None))||* {
-                                return Err(Error::new(
-                                    $span,
-                                    "Duplicated conversion type definition",
-                                ));
-                            }
-                        };
-                    }
-                    while !content.is_empty() {
-                        if let Ok(kw) = content.parse::<kw::get>() {
-                            check_not_duplicated!(get_ty; kw.span);
-                            get_ty = AccessorKind::Conv(content.parse()?);
-                        } else if let Ok(kw) = content.parse::<kw::try_get>() {
-                            check_not_duplicated!(get_ty; kw.span);
-                            get_ty = AccessorKind::TryConv(content.parse()?);
-                        } else if let Ok(kw) = content.parse::<kw::unsafe_get>() {
-                            check_not_duplicated!(get_ty; kw.span);
-                            get_ty = AccessorKind::UnsafeConv(content.parse()?);
-                        } else if let Ok(kw) = content.parse::<kw::set>() {
-                            check_not_duplicated!(set_ty; kw.span);
-                            set_ty = AccessorKind::Conv(content.parse()?);
-                        } else if let Ok(kw) = content.parse::<kw::try_set>() {
-                            check_not_duplicated!(set_ty; kw.span);
-                            set_ty = AccessorKind::TryConv(content.parse()?);
-                        } else if let Ok(kw) = content.parse::<Token![try]>() {
-                            check_not_duplicated!(get_ty, set_ty; kw.span);
-                            let ty: Type = content.parse()?;
-                            get_ty = AccessorKind::TryConv(ty.clone());
-                            set_ty = AccessorKind::TryConv(ty);
-                        } else if let Ok(kw) = content.parse::<Token![unsafe]>() {
-                            check_not_duplicated!(get_ty, set_ty; kw.span);
-                            let ty: Type = content.parse()?;
-                            get_ty = AccessorKind::UnsafeConv(ty.clone());
-                            set_ty = AccessorKind::UnsafeConv(ty);
-                        } else if let Ok(kw) = content.parse::<kw::read_only>() {
-                            if matches!(&get_ty, AccessorKind::Disabled) {
-                                return Err(Error::new(
-                                    kw.span,
-                                    "Duplicated read_only and write_only specifiers",
-                                ));
-                            }
-                            set_ty = AccessorKind::Disabled;
-                        } else if let Ok(kw) = content.parse::<kw::write_only>() {
-                            if matches!(&set_ty, AccessorKind::Disabled) {
-                                return Err(Error::new(
-                                    kw.span,
-                                    "Duplicated read_only and write_only specifiers",
-                                ));
-                            }
-                            get_ty = AccessorKind::Disabled;
-                        } else {
-                            let ty: Type = content.parse()?;
-                            check_not_duplicated!(get_ty, set_ty; ty.span());
-                            get_ty = AccessorKind::Conv(ty.clone());
-                            set_ty = AccessorKind::Conv(ty);
+            let mut get_ty = AccessorKind::None;
+            let mut set_ty = AccessorKind::None;
+            let lookahead = input.lookahead1();
+            if lookahead.peek(token::Bracket) {
+                let content;
+                bracketed!(content in input);
+                macro_rules! check_not_duplicated {
+                    ($($ident: ident),*; $span: expr) => {
+                        if $(!matches!(&$ident, AccessorKind::None))||* {
+                            return Err(Error::new(
+                                $span,
+                                "Duplicated conversion type definition",
+                            ));
                         }
-                        let _ = content.parse::<Token![,]>();
-                    }
-                    (get_ty, set_ty)
-                } else {
-                    (AccessorKind::None, AccessorKind::None)
+                    };
                 }
-            };
+                while !content.is_empty() {
+                    if let Ok(kw) = content.parse::<kw::get>() {
+                        check_not_duplicated!(get_ty; kw.span);
+                        get_ty = AccessorKind::Conv(content.parse()?);
+                    } else if let Ok(kw) = content.parse::<kw::try_get>() {
+                        check_not_duplicated!(get_ty; kw.span);
+                        get_ty = AccessorKind::TryConv(content.parse()?);
+                    } else if let Ok(kw) = content.parse::<kw::unsafe_get>() {
+                        check_not_duplicated!(get_ty; kw.span);
+                        get_ty = AccessorKind::UnsafeConv(content.parse()?);
+                    } else if let Ok(kw) = content.parse::<kw::set>() {
+                        check_not_duplicated!(set_ty; kw.span);
+                        set_ty = AccessorKind::Conv(content.parse()?);
+                    } else if let Ok(kw) = content.parse::<kw::try_set>() {
+                        check_not_duplicated!(set_ty; kw.span);
+                        set_ty = AccessorKind::TryConv(content.parse()?);
+                    } else if let Ok(kw) = content.parse::<Token![try]>() {
+                        check_not_duplicated!(get_ty, set_ty; kw.span);
+                        let ty: Type = content.parse()?;
+                        get_ty = AccessorKind::TryConv(ty.clone());
+                        set_ty = AccessorKind::TryConv(ty);
+                    } else if let Ok(kw) = content.parse::<Token![unsafe]>() {
+                        check_not_duplicated!(get_ty, set_ty; kw.span);
+                        let ty: Type = content.parse()?;
+                        get_ty = AccessorKind::UnsafeConv(ty.clone());
+                        set_ty = AccessorKind::UnsafeConv(ty);
+                    } else if let Ok(kw) = content.parse::<kw::read_only>() {
+                        if matches!(&get_ty, AccessorKind::Disabled) {
+                            return Err(Error::new(
+                                kw.span,
+                                "Duplicated read_only and write_only specifiers",
+                            ));
+                        }
+                        set_ty = AccessorKind::Disabled;
+                    } else if let Ok(kw) = content.parse::<kw::write_only>() {
+                        if matches!(&set_ty, AccessorKind::Disabled) {
+                            return Err(Error::new(
+                                kw.span,
+                                "Duplicated read_only and write_only specifiers",
+                            ));
+                        }
+                        get_ty = AccessorKind::Disabled;
+                    } else {
+                        let ty: Type = content.parse()?;
+                        check_not_duplicated!(get_ty, set_ty; ty.span());
+                        get_ty = AccessorKind::Conv(ty.clone());
+                        set_ty = AccessorKind::Conv(ty);
+                    }
+                    let _ = content.parse::<Token![,]>();
+                }
+            }
             input.parse::<Token![@]>()?;
             Ok(Field {
                 attrs,
@@ -243,7 +238,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         outer_attrs,
         vis,
         #[cfg(feature = "nightly")]
-        is_const: struct_is_const,
+            is_const: struct_is_const,
         ident,
         storage_vis,
         storage_ty,
@@ -329,13 +324,13 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                 let get_value = if let Some(end) = &end {
                     quote_spanned! {
                         ident.span() =>
-                        ::proc_bitfield::static_assertions::const_assert!(
+                        ::proc_bitfield::__private::static_assertions::const_assert!(
                             #end > #start
                         );
-                        ::proc_bitfield::static_assertions::const_assert!(
+                        ::proc_bitfield::__private::static_assertions::const_assert!(
                             #start < #storage_ty_bits && #end <= #storage_ty_bits
                         );
-                        ::proc_bitfield::static_assertions::const_assert!(
+                        ::proc_bitfield::__private::static_assertions::const_assert!(
                             #end - #start <= #ty_bits
                         );
                         let raw_result = <#storage_ty as ::proc_bitfield::BitRange<#ty>>
@@ -344,7 +339,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                 } else {
                     quote_spanned! {
                         ident.span() =>
-                        ::proc_bitfield::static_assertions::const_assert!(
+                        ::proc_bitfield::__private::static_assertions::const_assert!(
                             #start < #storage_ty_bits
                         );
                         let raw_result = <#storage_ty as ::proc_bitfield::Bit>
@@ -449,7 +444,10 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         },
     ).collect::<Vec<_>>();
     let impl_debug = if has_debug {
-        let field_idents = fields.iter().map(|field| &field.ident);
+        let field_idents = fields
+            .iter()
+            .filter(|field| !matches!(field.get_ty, AccessorKind::Disabled))
+            .map(|field| &field.ident);
         Some(quote! {
             impl #generics ::core::fmt::Debug for #ident #where_clause {
                 fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {

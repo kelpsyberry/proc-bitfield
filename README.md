@@ -37,4 +37,4 @@ bitfield! {
 
 ## License
 
-This project is licensed under a dual MIT/Apache 2.0 license
+This project is licensed under a dual MIT/Apache 2.0 license.

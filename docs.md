@@ -62,16 +62,16 @@ Fields are both readable and writable by default, but can be declared read-only 
 
 Fields' "raw" types as specified after the colon are restricted by `BitRange` implementations on the bitfield's contained type; however, accessors can perform conversions specified through optional attributes. These can be:
 - Infallible conversions, using the `From` and `Into` traits, the relevant attributes being:
-    - `get` *Type*, specifying the type that the raw value will be converted into using `From<T>` for reads
-    - `set` *Type*, specifying the type that will be converted into the raw value using `Into<T>` for writes
-    - *Type*, as shorthand for `get` *Type* and `set` *Type*
+    - `get` [*Type*], specifying the type that the raw value will be converted into using `From<T>` for reads
+    - `set` [*Type*], specifying the type that will be converted into the raw value using `Into<T>` for writes
+    - [*Type*], as shorthand for `get` [*Type*] and `set` [*Type*]
 - Fallible conversions, using the `TryFrom` and `TryInto` traits, the relevant attributes being:
-    - `try_get` *Type*, specifying the type that the raw value will be fallibly converted into using `TryFrom<T>` for reads
-    - `try_set` *Type*, specifying the type that will be fallibly converted into the raw value into using `TryInto<T>` for writes
-    - `try` *Type*, as shorthand for `try_get` *Type* and `try_set` *Type*
+    - `try_get` [*Type*], specifying the type that the raw value will be fallibly converted into using `TryFrom<T>` for reads
+    - `try_set` [*Type*], specifying the type that will be fallibly converted into the raw value into using `TryInto<T>` for writes
+    - `try` [*Type*], as shorthand for `try_get` [*Type*] and `try_set` [*Type*]
 - Unsafe (for reads) conversions, using the `UnsafeFrom` and `Into` traits, the relevant attributes being:
-    - `unsafe_get` *Type*, specifying the type that the raw value will be unsafely converted into using `UnsafeFrom<T>` for reads
-    - `unsafe` *Type*, as shorthand for `unsafe_get` *Type* and `set` *Type*
+    - `unsafe_get` [*Type*], specifying the type that the raw value will be unsafely converted into using `UnsafeFrom<T>` for reads
+    - `unsafe` [*Type*], as shorthand for `unsafe_get` [*Type*] and `set` [*Type*]
 
 [*Visibility*]: https://doc.rust-lang.org/stable/reference/visibility-and-privacy.html
 [IDENTIFIER]: https://doc.rust-lang.org/stable/reference/identifiers.html
