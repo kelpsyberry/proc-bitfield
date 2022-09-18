@@ -10,12 +10,21 @@ use syn::{
 
 mod kw {
     syn::custom_keyword!(get);
-    syn::custom_keyword!(try_get);
-    syn::custom_keyword!(unsafe_get);
     syn::custom_keyword!(set);
+
+    syn::custom_keyword!(try_get);
     syn::custom_keyword!(try_set);
+    syn::custom_keyword!(try_both);
+
+    syn::custom_keyword!(unsafe_get);
+    syn::custom_keyword!(unsafe_set);
+    syn::custom_keyword!(unsafe_both);
+
     syn::custom_keyword!(read_only);
+    syn::custom_keyword!(ro);
     syn::custom_keyword!(write_only);
+    syn::custom_keyword!(wo);
+
     syn::custom_keyword!(Debug);
 }
 
@@ -115,67 +124,131 @@ impl Parse for Struct {
             let mut set_ty = AccessorKind::None;
             let lookahead = input.lookahead1();
             if lookahead.peek(token::Bracket) {
-                let content;
-                bracketed!(content in input);
-                macro_rules! check_not_duplicated {
+                let options_content;
+                bracketed!(options_content in input);
+                macro_rules! check_conversion_ty_conflict {
                     ($($ident: ident),*; $span: expr) => {
                         if $(!matches!(&$ident, AccessorKind::None))||* {
                             return Err(Error::new(
                                 $span,
-                                "Duplicated conversion type definition",
+                                "Conflicting conversion type definitions",
                             ));
                         }
                     };
                 }
-                while !content.is_empty() {
-                    if let Ok(kw) = content.parse::<kw::get>() {
-                        check_not_duplicated!(get_ty; kw.span);
-                        get_ty = AccessorKind::Conv(content.parse()?);
-                    } else if let Ok(kw) = content.parse::<kw::try_get>() {
-                        check_not_duplicated!(get_ty; kw.span);
-                        get_ty = AccessorKind::TryConv(content.parse()?);
-                    } else if let Ok(kw) = content.parse::<kw::unsafe_get>() {
-                        check_not_duplicated!(get_ty; kw.span);
-                        get_ty = AccessorKind::UnsafeConv(content.parse()?);
-                    } else if let Ok(kw) = content.parse::<kw::set>() {
-                        check_not_duplicated!(set_ty; kw.span);
-                        set_ty = AccessorKind::Conv(content.parse()?);
-                    } else if let Ok(kw) = content.parse::<kw::try_set>() {
-                        check_not_duplicated!(set_ty; kw.span);
-                        set_ty = AccessorKind::TryConv(content.parse()?);
-                    } else if let Ok(kw) = content.parse::<Token![try]>() {
-                        check_not_duplicated!(get_ty, set_ty; kw.span);
-                        let ty: Type = content.parse()?;
-                        get_ty = AccessorKind::TryConv(ty.clone());
-                        set_ty = AccessorKind::TryConv(ty);
-                    } else if let Ok(kw) = content.parse::<Token![unsafe]>() {
-                        check_not_duplicated!(get_ty, set_ty; kw.span);
-                        let ty: Type = content.parse()?;
-                        get_ty = AccessorKind::UnsafeConv(ty.clone());
-                        set_ty = AccessorKind::UnsafeConv(ty);
-                    } else if let Ok(kw) = content.parse::<kw::read_only>() {
-                        if matches!(&get_ty, AccessorKind::Disabled) {
+
+                macro_rules! check_accessor_conflict {
+                    ($ident: ident, $name: literal, $other: ident, $span: ident) => {
+                        if matches!(&$ident, AccessorKind::Disabled) {
                             return Err(Error::new(
-                                kw.span,
-                                "Duplicated read_only and write_only specifiers",
+                                $span,
+                                concat!("Duplicate ", $name, " specifiers"),
                             ));
                         }
-                        set_ty = AccessorKind::Disabled;
-                    } else if let Ok(kw) = content.parse::<kw::write_only>() {
-                        if matches!(&set_ty, AccessorKind::Disabled) {
+                        if matches!(&$other, AccessorKind::Disabled) {
                             return Err(Error::new(
-                                kw.span,
-                                "Duplicated read_only and write_only specifiers",
+                                $span,
+                                concat!("Conflicting read_only and write_only specifiers"),
                             ));
                         }
-                        get_ty = AccessorKind::Disabled;
-                    } else {
-                        let ty: Type = content.parse()?;
-                        check_not_duplicated!(get_ty, set_ty; ty.span());
+                    };
+                }
+
+                while !options_content.is_empty() {
+                    'parse: {
+                        // Infallible conversions
+                        if let Ok(kw) = options_content.parse::<kw::get>() {
+                            check_conversion_ty_conflict!(get_ty; kw.span);
+                            get_ty = AccessorKind::Conv(options_content.parse()?);
+                            break 'parse;
+                        }
+                        if let Ok(kw) = options_content.parse::<kw::set>() {
+                            check_conversion_ty_conflict!(set_ty; kw.span);
+                            set_ty = AccessorKind::Conv(options_content.parse()?);
+                            break 'parse;
+                        }
+
+                        // Fallible conversions
+                        if let Ok(kw) = options_content.parse::<kw::try_get>() {
+                            check_conversion_ty_conflict!(get_ty; kw.span);
+                            get_ty = AccessorKind::TryConv(options_content.parse()?);
+                            break 'parse;
+                        }
+                        if let Ok(kw) = options_content.parse::<kw::try_set>() {
+                            check_conversion_ty_conflict!(set_ty; kw.span);
+                            set_ty = AccessorKind::TryConv(options_content.parse()?);
+                            break 'parse;
+                        }
+                        if let Ok(kw) = options_content.parse::<kw::try_both>() {
+                            check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
+                            let ty: Type = options_content.parse()?;
+                            get_ty = AccessorKind::TryConv(ty.clone());
+                            set_ty = AccessorKind::TryConv(ty);
+                            break 'parse;
+                        }
+                        if let Ok(kw) = options_content.parse::<Token![try]>() {
+                            check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
+                            let ty: Type = options_content.parse()?;
+                            get_ty = AccessorKind::TryConv(ty.clone());
+                            set_ty = AccessorKind::Conv(ty);
+                            break 'parse;
+                        }
+
+                        // Unsafe conversions
+                        if let Ok(kw) = options_content.parse::<kw::unsafe_get>() {
+                            check_conversion_ty_conflict!(get_ty; kw.span);
+                            get_ty = AccessorKind::UnsafeConv(options_content.parse()?);
+                            break 'parse;
+                        }
+                        if let Ok(kw) = options_content.parse::<kw::unsafe_set>() {
+                            check_conversion_ty_conflict!(set_ty; kw.span);
+                            set_ty = AccessorKind::UnsafeConv(options_content.parse()?);
+                            break 'parse;
+                        }
+                        if let Ok(kw) = options_content.parse::<kw::unsafe_both>() {
+                            check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
+                            let ty: Type = options_content.parse()?;
+                            get_ty = AccessorKind::UnsafeConv(ty.clone());
+                            set_ty = AccessorKind::UnsafeConv(ty);
+                            break 'parse;
+                        }
+                        if let Ok(kw) = options_content.parse::<Token![unsafe]>() {
+                            check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
+                            let ty: Type = options_content.parse()?;
+                            get_ty = AccessorKind::UnsafeConv(ty.clone());
+                            set_ty = AccessorKind::Conv(ty);
+                            break 'parse;
+                        }
+
+                        // Access restrictions
+                        if let Ok(span) = options_content
+                            .parse::<kw::read_only>()
+                            .map(|kw| kw.span)
+                            .or_else(|_| options_content.parse::<kw::ro>().map(|kw| kw.span))
+                        {
+                            check_accessor_conflict!(set_ty, "read_only", get_ty, span);
+                            set_ty = AccessorKind::Disabled;
+                            break 'parse;
+                        } else if let Ok(span) = options_content
+                            .parse::<kw::write_only>()
+                            .map(|kw| kw.span)
+                            .or_else(|_| options_content.parse::<kw::wo>().map(|kw| kw.span))
+                        {
+                            check_accessor_conflict!(get_ty, "write_only", set_ty, span);
+                            get_ty = AccessorKind::Disabled;
+                            break 'parse;
+                        }
+
+                        // Infallible conversion (without keywords)
+                        let ty: Type = options_content.parse()?;
+                        check_conversion_ty_conflict!(get_ty, set_ty; ty.span());
                         get_ty = AccessorKind::Conv(ty.clone());
                         set_ty = AccessorKind::Conv(ty);
                     }
-                    let _ = content.parse::<Token![,]>();
+                    let had_comma = options_content.parse::<Token![,]>().is_ok();
+                    if !options_content.is_empty() && !had_comma {
+                        panic!("expected comma between field options");
+                    }
                 }
             }
             input.parse::<Token![@]>()?;
@@ -301,6 +374,15 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             quote! { #get_ty },
                         )
                     }
+                    AccessorKind::TryConv(get_ty) => (
+                        quote! { #get_ty::try_from(raw_result) },
+                        quote! {
+                            Result<
+                                #get_ty,
+                                <#get_ty as ::core::convert::TryFrom<#ty>>::Error,
+                            >
+                        },
+                    ),
                     AccessorKind::UnsafeConv(get_ty) => {
                         (
                             quote! { unsafe {
@@ -311,15 +393,6 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             quote! { #get_ty },
                         )
                     }
-                    AccessorKind::TryConv(get_ty) => (
-                        quote! { #get_ty::try_from(raw_result) },
-                        quote! {
-                            Result<
-                                #get_ty,
-                                <#get_ty as ::core::convert::TryFrom<#ty>>::Error,
-                            >
-                        },
-                    ),
                 };
                 let get_value = if let Some(end) = &end {
                     quote_spanned! {
@@ -377,7 +450,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         quote! { Self },
                     ),
                     AccessorKind::Disabled => unreachable!(),
-                    AccessorKind::Conv(set_ty) | AccessorKind::UnsafeConv(set_ty) => (
+                    AccessorKind::Conv(set_ty) => (
                         quote! { <#set_ty as ::core::convert::Into<#ty>>::into(value) },
                         set_ty,
                         quote! {},
@@ -392,6 +465,14 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         quote! { Result<(), <#set_ty as ::core::convert::TryInto<#ty>>::Error> },
                         quote! { Ok(raw_result) },
                         quote! { Result<Self, <#set_ty as ::core::convert::TryInto<#ty>>::Error> },
+                    ),
+                    AccessorKind::UnsafeConv(set_ty) => (
+                        quote! { unsafe { #set_ty::unsafe_into(value) } },
+                        set_ty,
+                        quote! {},
+                        quote! { () },
+                        quote! { raw_result },
+                        quote! { Self },
                     ),
                 };
                 let with_value = if let Some(end) = &end {

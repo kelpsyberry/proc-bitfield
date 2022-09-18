@@ -23,6 +23,5 @@ pub use traits::*;
 extern crate self as proc_bitfield;
 
 #[cfg(doc)]
-mod example;
-#[cfg(doc)]
-pub use example::*;
+/// Sample bitfields to showcase the crate's features
+pub mod example;
