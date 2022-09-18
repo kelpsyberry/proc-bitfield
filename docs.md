@@ -44,7 +44,7 @@ Fields' "raw" types as specified after the colon are restricted by `BitRange<T>`
     - `try` [*Type*], as a shorthand for `try_get` [*Type*] and `set` [*Type*]
 - Unsafe conversions, using the `UnsafeFrom<T>` and `UnsafeInto<T>` traits, the relevant options being:
     - `unsafe_get` [*Type*], specifying the type that the raw value will be unsafely converted into on reads, using `UnsafeFrom<T>`
-    - `unsafe_get` [*Type*], specifying the type that will be unsafely converted into the raw value on writes, using `UnsafeInto<T>`
+    - `unsafe_set` [*Type*], specifying the type that will be unsafely converted into the raw value on writes, using `UnsafeInto<T>`
     - `unsafe_both` [*Type*], as shorthand for `unsafe_get` [*Type*] and `unsafe_set` [*Type*]
     - `unsafe` [*Type*], as shorthand for `unsafe_get` [*Type*] and `set` [*Type*]
 

@@ -9,7 +9,7 @@ A Rust crate to expressively declare bitfield-like `struct`s, automatically ensu
 
 ## Usage examples
 
-### Bit ranges ([generated]([https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.BitRanges.html]))
+### Bit ranges ([generated](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.BitRanges.html))
 
 ```rust
 bitfield! {
@@ -45,7 +45,7 @@ bitfield! {
 }
 ```
 
-### Field access restrictions ([generated]([https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.AccessRestrictions.html]))
+### Field access restrictions ([generated](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.AccessRestrictions.html))
 
 ```rust
 bitfield! {
@@ -70,7 +70,7 @@ bitfield! {
 }
 ```
 
-### Field type conversions ([generated]([https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.FieldTypeConversions.html]))
+### Field type conversions ([generated](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.FieldTypeConversions.html))
 
 ```rust
 // Types and `UnsafeFrom<T>`/`UnsafeInto<T>` implementations omitted, they can be found in
@@ -168,7 +168,7 @@ bitfield! {
 }
 ```
 
-### `const fn` support ([generated]([https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.ConstAccessors.html]))
+### `const fn` support ([generated](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.ConstAccessors.html))
 
 By using `const struct`, all getters and setters will be declared as `const fn`s:
 ```rust
