@@ -155,96 +155,74 @@ impl Parse for Struct {
                 }
 
                 while !options_content.is_empty() {
-                    'parse: {
-                        // Infallible conversions
-                        if let Ok(kw) = options_content.parse::<kw::get>() {
-                            check_conversion_ty_conflict!(get_ty; kw.span);
-                            get_ty = AccessorKind::Conv(options_content.parse()?);
-                            break 'parse;
-                        }
-                        if let Ok(kw) = options_content.parse::<kw::set>() {
-                            check_conversion_ty_conflict!(set_ty; kw.span);
-                            set_ty = AccessorKind::Conv(options_content.parse()?);
-                            break 'parse;
-                        }
-
-                        // Fallible conversions
-                        if let Ok(kw) = options_content.parse::<kw::try_get>() {
-                            check_conversion_ty_conflict!(get_ty; kw.span);
-                            get_ty = AccessorKind::TryConv(options_content.parse()?);
-                            break 'parse;
-                        }
-                        if let Ok(kw) = options_content.parse::<kw::try_set>() {
-                            check_conversion_ty_conflict!(set_ty; kw.span);
-                            set_ty = AccessorKind::TryConv(options_content.parse()?);
-                            break 'parse;
-                        }
-                        if let Ok(kw) = options_content.parse::<kw::try_both>() {
-                            check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
-                            let ty: Type = options_content.parse()?;
-                            get_ty = AccessorKind::TryConv(ty.clone());
-                            set_ty = AccessorKind::TryConv(ty);
-                            break 'parse;
-                        }
-                        if let Ok(kw) = options_content.parse::<Token![try]>() {
-                            check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
-                            let ty: Type = options_content.parse()?;
-                            get_ty = AccessorKind::TryConv(ty.clone());
-                            set_ty = AccessorKind::Conv(ty);
-                            break 'parse;
-                        }
-
-                        // Unsafe conversions
-                        if let Ok(kw) = options_content.parse::<kw::unsafe_get>() {
-                            check_conversion_ty_conflict!(get_ty; kw.span);
-                            get_ty = AccessorKind::UnsafeConv(options_content.parse()?);
-                            break 'parse;
-                        }
-                        if let Ok(kw) = options_content.parse::<kw::unsafe_set>() {
-                            check_conversion_ty_conflict!(set_ty; kw.span);
-                            set_ty = AccessorKind::UnsafeConv(options_content.parse()?);
-                            break 'parse;
-                        }
-                        if let Ok(kw) = options_content.parse::<kw::unsafe_both>() {
-                            check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
-                            let ty: Type = options_content.parse()?;
-                            get_ty = AccessorKind::UnsafeConv(ty.clone());
-                            set_ty = AccessorKind::UnsafeConv(ty);
-                            break 'parse;
-                        }
-                        if let Ok(kw) = options_content.parse::<Token![unsafe]>() {
-                            check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
-                            let ty: Type = options_content.parse()?;
-                            get_ty = AccessorKind::UnsafeConv(ty.clone());
-                            set_ty = AccessorKind::Conv(ty);
-                            break 'parse;
-                        }
-
-                        // Access restrictions
-                        if let Ok(span) = options_content
-                            .parse::<kw::read_only>()
-                            .map(|kw| kw.span)
-                            .or_else(|_| options_content.parse::<kw::ro>().map(|kw| kw.span))
-                        {
-                            check_accessor_conflict!(set_ty, "read_only", get_ty, span);
-                            set_ty = AccessorKind::Disabled;
-                            break 'parse;
-                        } else if let Ok(span) = options_content
-                            .parse::<kw::write_only>()
-                            .map(|kw| kw.span)
-                            .or_else(|_| options_content.parse::<kw::wo>().map(|kw| kw.span))
-                        {
-                            check_accessor_conflict!(get_ty, "write_only", set_ty, span);
-                            get_ty = AccessorKind::Disabled;
-                            break 'parse;
-                        }
-
-                        // Infallible conversion (without keywords)
+                    // Infallible conversions
+                    if let Ok(kw) = options_content.parse::<kw::get>() {
+                        check_conversion_ty_conflict!(get_ty; kw.span);
+                        get_ty = AccessorKind::Conv(options_content.parse()?);
+                    } else if let Ok(kw) = options_content.parse::<kw::set>() {
+                        check_conversion_ty_conflict!(set_ty; kw.span);
+                        set_ty = AccessorKind::Conv(options_content.parse()?);
+                    }
+                    // Fallible conversions
+                    else if let Ok(kw) = options_content.parse::<kw::try_get>() {
+                        check_conversion_ty_conflict!(get_ty; kw.span);
+                        get_ty = AccessorKind::TryConv(options_content.parse()?);
+                    } else if let Ok(kw) = options_content.parse::<kw::try_set>() {
+                        check_conversion_ty_conflict!(set_ty; kw.span);
+                        set_ty = AccessorKind::TryConv(options_content.parse()?);
+                    } else if let Ok(kw) = options_content.parse::<kw::try_both>() {
+                        check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
+                        let ty: Type = options_content.parse()?;
+                        get_ty = AccessorKind::TryConv(ty.clone());
+                        set_ty = AccessorKind::TryConv(ty);
+                    } else if let Ok(kw) = options_content.parse::<Token![try]>() {
+                        check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
+                        let ty: Type = options_content.parse()?;
+                        get_ty = AccessorKind::TryConv(ty.clone());
+                        set_ty = AccessorKind::Conv(ty);
+                    }
+                    // Unsafe conversions
+                    else if let Ok(kw) = options_content.parse::<kw::unsafe_get>() {
+                        check_conversion_ty_conflict!(get_ty; kw.span);
+                        get_ty = AccessorKind::UnsafeConv(options_content.parse()?);
+                    } else if let Ok(kw) = options_content.parse::<kw::unsafe_set>() {
+                        check_conversion_ty_conflict!(set_ty; kw.span);
+                        set_ty = AccessorKind::UnsafeConv(options_content.parse()?);
+                    } else if let Ok(kw) = options_content.parse::<kw::unsafe_both>() {
+                        check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
+                        let ty: Type = options_content.parse()?;
+                        get_ty = AccessorKind::UnsafeConv(ty.clone());
+                        set_ty = AccessorKind::UnsafeConv(ty);
+                    } else if let Ok(kw) = options_content.parse::<Token![unsafe]>() {
+                        check_conversion_ty_conflict!(get_ty, set_ty; kw.span);
+                        let ty: Type = options_content.parse()?;
+                        get_ty = AccessorKind::UnsafeConv(ty.clone());
+                        set_ty = AccessorKind::Conv(ty);
+                    }
+                    // Access restrictions
+                    else if let Ok(span) = options_content
+                        .parse::<kw::read_only>()
+                        .map(|kw| kw.span)
+                        .or_else(|_| options_content.parse::<kw::ro>().map(|kw| kw.span))
+                    {
+                        check_accessor_conflict!(set_ty, "read_only", get_ty, span);
+                        set_ty = AccessorKind::Disabled;
+                    } else if let Ok(span) = options_content
+                        .parse::<kw::write_only>()
+                        .map(|kw| kw.span)
+                        .or_else(|_| options_content.parse::<kw::wo>().map(|kw| kw.span))
+                    {
+                        check_accessor_conflict!(get_ty, "write_only", set_ty, span);
+                        get_ty = AccessorKind::Disabled;
+                    }
+                    // Infallible conversion (without keywords)
+                    else {
                         let ty: Type = options_content.parse()?;
                         check_conversion_ty_conflict!(get_ty, set_ty; ty.span());
                         get_ty = AccessorKind::Conv(ty.clone());
                         set_ty = AccessorKind::Conv(ty);
                     }
+
                     let had_comma = options_content.parse::<Token![,]>().is_ok();
                     if !options_content.is_empty() && !had_comma {
                         panic!("expected comma between field options");
