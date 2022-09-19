@@ -1,5 +1,6 @@
-## 0.2.1 (`proc-bitfield-macros` only)
+## 0.2.1
 - Fixed the crate on the current stable Rust compiler (1.64.0), by not using the `label_break_value` feature (stabilized in 1.65.0)
+- Enabled the `nightly` feature on docs.rs
 
 ## 0.2.0
 - Added more examples on how to use field options
