@@ -26,6 +26,7 @@ mod impls;
 /// - `UnsafeFrom<T> for U` implies [`UnsafeInto`]`<U> for T`
 /// - `UnsafeFrom`, like [`From`], is reflexive, which means that `UnsafeFrom<T> for T` is implemented
 /// - [`From`]`<T> for U` implies `UnsafeFrom<T> for U`
+#[cfg_attr(feature = "nightly", const_trait)]
 pub trait UnsafeFrom<T> {
     /// Unsafely converts to this type from the input type.
     unsafe fn unsafe_from(_: T) -> Self;
@@ -52,6 +53,7 @@ pub trait UnsafeFrom<T> {
 /// - [`UnsafeFrom`]`<T> for U` implies `UnsafeInto<U> for T`
 /// - `UnsafeInto`, like [`Into`], is reflexive, which means that `UnsafeInto<T> for T` is implemented
 /// - [`Into`]`<U> for T` implies `UnsafeInto<U> for T`
+#[cfg_attr(feature = "nightly", const_trait)]
 pub trait UnsafeInto<T> {
     /// Unsafely converts this type into the input type.
     unsafe fn unsafe_into(self) -> T;
