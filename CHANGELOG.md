@@ -1,3 +1,9 @@
+## 0.2.2
+- Fixed const traits on the latest nightly
+- Added optionals `FromRaw`, `IntoRaw` and `DerefRaw` automatic implementations
+- Fixed some field type conversions failing when the required trait was not in scope
+- Fixed code for the example
+
 ## 0.2.1
 - Fixed the crate on the current stable Rust compiler (1.64.0), by not using the `label_break_value` feature (stabilized in 1.65.0)
 - Enabled the `nightly` feature on docs.rs

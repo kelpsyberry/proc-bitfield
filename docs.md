@@ -2,11 +2,33 @@
 
 A Rust crate to expressively declare bitfield-like `struct`s, automatically ensuring their correctness at compile time and declaring accessors.
 
-## Automatic `Debug` implementation
+## Automatic trait implementations
 
-A `fmt::Debug` implementation can be implemented automatically for a given bitfield struct by adding `: Debug` after the tuple struct-like storage type declaration; the generated `fmt` function will output the type's raw value as well as all of its fields' values.
+After the struct's name and its storage type declaration, a list of automatic trait implementations can be optionally added. For example, the following declaration will result in all automatic implementations being applied:
+```rust
+bitfield! {
+    pub struct Example(pub u8): Debug, FromRaw, IntoRaw, DerefRaw { ... }
+}
+```
+Currently, the allowed automatic implementations are `Debug`, `FromRaw`, `IntoRaw` and `DerefRaw`.
 
-## `nightly` feature
+### `Debug`
+
+If specified, `core::fmt::Debug` will be implemented automatically for the current bitfield struct; the generated `fmt` function will output the type's raw value as well as all of its *readable* fields' values.
+
+### `FromRaw`
+
+If specified, `core::convert::From<$storage_ty>` will be implemented automatically for the current bitfield struct; the generated `from` function will construct an instance of the bitfield struct from the provided value directly, with no additional checks, analogously to `$bitfield_ty(raw)` in a context where the bitfield struct's raw value field is accessible. *This does not check or change the previously declared visibility of the bitfield struct's raw value field (`bitfield.0`), or any other such manually-declared fields, so care must be taken to maintain consistency.*
+
+### `IntoRaw`
+
+If specified, `core::convert::From<$bitfield_ty>` will be implemented automatically for the current bitfield struct's storage type (and consequently, `core::convert::Into<$storage_ty>` for the bitfield type); the generated `from` function will read the bitfield's raw value, with no additional changes, analogously to `bitfield.0` in a context where the bitfield struct's raw value field is accessible. *Analogously to `FromRaw`, care must be taken to maintain consistency with the visibility of the bitfield struct's raw value outside this implementation.*
+
+### `DerefRaw`
+
+If specified, `core::ops::Deref` will be implemented automatically for the current bitfield struct; the generated `deref` function will read the bitfield's raw value directly, analogously to `&bitfield.0` in a context where the bitfield struct's raw value field is accessible. *Analogously to `FromRaw`, care must be taken to maintain consistency with the visibility of the bitfield struct's raw value outside this implementation.*
+
+## `nightly` feature and `const fn` accessors
 
 Optionally, the `nightly` feature can be enabled to use `const Trait` functionality: this makes the `BitRange` and `Bit` traits be implemented using `const fn`s for all integer types, and enables the option to use `const fn`s for field accessors.
 

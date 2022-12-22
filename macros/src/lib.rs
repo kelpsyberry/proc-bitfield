@@ -26,6 +26,9 @@ mod kw {
     syn::custom_keyword!(wo);
 
     syn::custom_keyword!(Debug);
+    syn::custom_keyword!(FromRaw);
+    syn::custom_keyword!(IntoRaw);
+    syn::custom_keyword!(DerefRaw);
 }
 
 enum Bits {
@@ -56,6 +59,13 @@ struct Field {
     bits: Bits,
 }
 
+struct AutoImpls {
+    debug: bool,
+    from_raw: bool,
+    into_raw: bool,
+    deref_raw: bool,
+}
+
 struct Struct {
     outer_attrs: Vec<Attribute>,
     vis: Visibility,
@@ -64,7 +74,7 @@ struct Struct {
     ident: Ident,
     storage_vis: Visibility,
     storage_ty: Type,
-    has_debug: bool,
+    auto_impls: AutoImpls,
     generics: Generics,
     where_clause: Option<WhereClause>,
     fields: Punctuated<Field, Token![,]>,
@@ -86,9 +96,32 @@ impl Parse for Struct {
             (content.parse()?, content.parse()?)
         };
 
-        let has_debug = input.parse::<Token![:]>().is_ok();
-        if has_debug {
-            input.parse::<kw::Debug>()?;
+        let mut auto_impls = AutoImpls {
+            debug: false,
+            from_raw: false,
+            into_raw: false,
+            deref_raw: false,
+        };
+        if input.parse::<Token![:]>().is_ok() {
+            loop {
+                if input.is_empty() {
+                    break;
+                }
+                if input.parse::<kw::Debug>().is_ok() {
+                    auto_impls.debug = true;
+                } else if input.parse::<kw::FromRaw>().is_ok() {
+                    auto_impls.from_raw = true;
+                } else if input.parse::<kw::IntoRaw>().is_ok() {
+                    auto_impls.into_raw = true;
+                } else if input.parse::<kw::DerefRaw>().is_ok() {
+                    auto_impls.deref_raw = true;
+                } else {
+                    break;
+                }
+                if input.parse::<Token![,]>().is_err() {
+                    break;
+                }
+            }
         }
 
         let mut lookahead = input.lookahead1();
@@ -225,7 +258,7 @@ impl Parse for Struct {
 
                     let had_comma = options_content.parse::<Token![,]>().is_ok();
                     if !options_content.is_empty() && !had_comma {
-                        panic!("expected comma between field options");
+                        options_content.error("expected comma between field options");
                     }
                 }
             }
@@ -276,7 +309,7 @@ impl Parse for Struct {
             storage_vis,
             storage_ty,
             generics,
-            has_debug,
+            auto_impls,
             where_clause,
             fields,
         })
@@ -293,7 +326,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         ident,
         storage_vis,
         storage_ty,
-        has_debug,
+        auto_impls,
         generics,
         where_clause,
         fields,
@@ -353,7 +386,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         )
                     }
                     AccessorKind::TryConv(get_ty) => (
-                        quote! { #get_ty::try_from(raw_result) },
+                        quote! { <#get_ty as ::core::convert::TryFrom<#ty>>::try_from(raw_result) },
                         quote! {
                             Result<
                                 #get_ty,
@@ -437,7 +470,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         quote! { Self },
                     ),
                     AccessorKind::TryConv(set_ty) => (
-                        quote! { #set_ty::try_into(value)? },
+                        quote! { <#set_ty as ::core::convert::TryInto<#ty>>::try_into(value)? },
                         set_ty,
                         quote! { Ok(()) },
                         quote! { Result<(), <#set_ty as ::core::convert::TryInto<#ty>>::Error> },
@@ -445,7 +478,9 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         quote! { Result<Self, <#set_ty as ::core::convert::TryInto<#ty>>::Error> },
                     ),
                     AccessorKind::UnsafeConv(set_ty) => (
-                        quote! { unsafe { #set_ty::unsafe_into(value) } },
+                        quote! { unsafe {
+                            <#set_ty as ::proc_bitfield::UnsafeInto<#ty>>::unsafe_into(value)
+                        } },
                         set_ty,
                         quote! {},
                         quote! { () },
@@ -502,12 +537,15 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             }
         },
     ).collect::<Vec<_>>();
-    let impl_debug = if has_debug {
+
+    let mut auto_trait_impls = Vec::new();
+
+    if auto_impls.debug {
         let field_idents = fields
             .iter()
             .filter(|field| !matches!(field.get_ty, AccessorKind::Disabled))
             .map(|field| &field.ident);
-        Some(quote! {
+        auto_trait_impls.push(quote! {
             impl #generics ::core::fmt::Debug for #ident #where_clause {
                 fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                     f.debug_struct(stringify!(#ident))
@@ -516,10 +554,41 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         .finish()
                 }
             }
-        })
-    } else {
-        None
-    };
+        });
+    }
+
+    if auto_impls.from_raw {
+        auto_trait_impls.push(quote! {
+            impl #generics ::core::convert::From<#storage_ty> for #ident #where_clause {
+                fn from(other: #storage_ty) -> Self {
+                    Self(other)
+                }
+            }
+        });
+    }
+
+    if auto_impls.into_raw {
+        auto_trait_impls.push(quote! {
+            impl #generics ::core::convert::From<#ident> for #storage_ty #where_clause {
+                fn from(other: #ident) -> Self {
+                    other.0
+                }
+            }
+        });
+    }
+
+    if auto_impls.deref_raw {
+        auto_trait_impls.push(quote! {
+            impl #generics ::core::ops::Deref for #ident #where_clause {
+                type Target = #storage_ty;
+
+                fn deref(&self) -> &#storage_ty {
+                    &self.0
+                }
+            }
+        });
+    }
+
     (quote! {
         #(#outer_attrs)*
         #vis struct #ident #generics(#storage_vis #storage_ty) #where_clause;
@@ -528,7 +597,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             #(#field_fns)*
         }
 
-        #impl_debug
+        #(#auto_trait_impls)*
     })
     .into()
 }

@@ -3,6 +3,7 @@ use core::num::TryFromIntError;
 
 /// Wrapper around [`NonZeroU8`](core::num::NonZeroU8) to implement conversion traits on a foreign
 /// type.
+#[derive(Clone, Copy, Debug)]
 pub struct NonZeroU8(core::num::NonZeroU8);
 
 impl From<NonZeroU8> for u8 {
@@ -15,7 +16,7 @@ impl TryFrom<u8> for NonZeroU8 {
     type Error = TryFromIntError;
 
     fn try_from(other: u8) -> Result<Self, Self::Error> {
-        NonZeroU8(other.try_into())
+        Ok(NonZeroU8(other.try_into()?))
     }
 }
 
@@ -26,6 +27,7 @@ impl UnsafeFrom<u8> for NonZeroU8 {
 }
 
 /// Wrapper around [`u16`] to implement conversion traits on a foreign type.
+#[derive(Clone, Copy, Debug)]
 pub struct U16(pub u16);
 
 impl UnsafeFrom<U16> for u8 {
@@ -34,7 +36,16 @@ impl UnsafeFrom<U16> for u8 {
     }
 }
 
+impl TryFrom<U16> for u8 {
+    type Error = TryFromIntError;
+
+    fn try_from(other: U16) -> Result<Self, Self::Error> {
+        other.0.try_into()
+    }
+}
+
 /// Wrapper around [`u8`] with infallible conversions both ways.
+#[derive(Clone, Copy, Debug)]
 pub struct U8WithParity {
     pub raw: u8,
     pub has_even_set_bits: bool,
@@ -56,6 +67,7 @@ impl From<U8WithParity> for u8 {
 }
 
 /// Wrapper around [`u8`] with fallible and unsafe conversion options both ways.
+#[derive(Clone, Copy, Debug)]
 pub struct SpuriouslyFailingU8(u8);
 
 impl TryFrom<u8> for SpuriouslyFailingU8 {
