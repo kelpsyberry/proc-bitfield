@@ -6,8 +6,8 @@ name = "proc-bitfield"
 version = "0.2.2"
 edition = "2021"
 description = "A crate to expressively declare bitfield-like structs"
-homepage = "https://github.com/Kelpsy/proc-bitfield"
-repository = "https://github.com/Kelpsy/proc-bitfield"
+homepage = "https://github.com/kelpsyberry/proc-bitfield"
+repository = "https://github.com/kelpsyberry/proc-bitfield"
 license = "MIT OR Apache-2.0"
 keywords = ["bitfield"]
 
