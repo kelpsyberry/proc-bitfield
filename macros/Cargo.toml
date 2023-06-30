@@ -1,6 +1,6 @@
 [package]
 name = "proc-bitfield-macros"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "The supporting proc-macro library for the proc-bitfield crate"
 homepage = "https://github.com/kelpsyberry/proc-bitfield"

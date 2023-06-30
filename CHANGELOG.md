@@ -1,3 +1,6 @@
+## 0.2.3
+- Made the `nightly` feature do nothing for the time being: const trait functionality has been removed from the standard library and the entire const trait system is being reworked, as described in https://github.com/rust-lang/rust/pull/110393.
+
 ## 0.2.2
 - Fixed const traits on the latest nightly
 - Added optionals `FromRaw`, `IntoRaw` and `DerefRaw` automatic implementations
