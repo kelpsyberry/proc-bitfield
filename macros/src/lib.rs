@@ -50,8 +50,6 @@ enum AccessorKind {
 struct Field {
     attrs: Vec<Attribute>,
     vis: Visibility,
-    #[cfg(feature = "nightly")]
-    is_const: bool,
     ident: Ident,
     ty: Type,
     get_ty: AccessorKind,
@@ -69,8 +67,6 @@ struct AutoImpls {
 struct Struct {
     outer_attrs: Vec<Attribute>,
     vis: Visibility,
-    #[cfg(feature = "nightly")]
-    is_const: bool,
     ident: Ident,
     storage_vis: Visibility,
     storage_ty: Type,
@@ -84,8 +80,6 @@ impl Parse for Struct {
     fn parse(input: ParseStream) -> Result<Self> {
         let outer_attrs = input.call(Attribute::parse_outer)?;
         let vis = input.parse()?;
-        #[cfg(feature = "nightly")]
-        let is_const = input.parse::<Token![const]>().is_ok();
         input.parse::<Token![struct]>()?;
         let ident = input.parse::<Ident>()?;
         let generics = input.parse::<Generics>()?;
@@ -150,8 +144,6 @@ impl Parse for Struct {
             let vis = input.parse()?;
             let ident = input.parse()?;
             input.parse::<Token![:]>()?;
-            #[cfg(feature = "nightly")]
-            let is_const = input.parse::<Token![const]>().is_ok();
             let ty = input.parse()?;
             let mut get_ty = AccessorKind::None;
             let mut set_ty = AccessorKind::None;
@@ -266,8 +258,6 @@ impl Parse for Struct {
             Ok(Field {
                 attrs,
                 vis,
-                #[cfg(feature = "nightly")]
-                is_const,
                 ident,
                 ty,
                 get_ty,
@@ -303,8 +293,6 @@ impl Parse for Struct {
         Ok(Struct {
             outer_attrs,
             vis,
-            #[cfg(feature = "nightly")]
-            is_const,
             ident,
             storage_vis,
             storage_ty,
@@ -321,8 +309,6 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
     let Struct {
         outer_attrs,
         vis,
-        #[cfg(feature = "nightly")]
-            is_const: struct_is_const,
         ident,
         storage_vis,
         storage_ty,
@@ -338,8 +324,6 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         |Field {
              attrs,
              vis,
-             #[cfg(feature = "nightly")]
-             is_const,
              ident,
              ty,
              get_ty,
@@ -350,14 +334,6 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             let ty_bits = quote! { (::core::mem::size_of::<#ty>() << 3) };
             let set_fn_ident = format_ident!("set_{}", ident);
             let with_fn_ident = format_ident!("with_{}", ident);
-            #[cfg(feature = "nightly")]
-            let const_token = if *is_const || struct_is_const {
-                quote! { const }
-            } else {
-                quote! {}
-            };
-            #[cfg(not(feature = "nightly"))]
-            let const_token = quote! {};
             let (start, end) = match bits {
                 Bits::Single(bit) => (quote! { #bit }, None),
                 Bits::Range { start, end } => (quote! { #start }, Some(quote! { #end })),
@@ -434,7 +410,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     #(#attrs)*
                     #[inline]
                     #[allow(clippy::identity_op)]
-                    #vis #const_token fn #ident(&self) -> #get_output_ty {
+                    #vis fn #ident(&self) -> #get_output_ty {
                         #get_value
                         #calc_get_result
                     }
@@ -508,7 +484,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     #[inline]
                     #[must_use]
                     #[allow(clippy::identity_op)]
-                    #vis #const_token fn #with_fn_ident(
+                    #vis fn #with_fn_ident(
                         self,
                         value: #set_with_input_ty,
                     ) -> #with_output_ty {
@@ -519,7 +495,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     #(#attrs)*
                     #[inline]
                     #[allow(clippy::identity_op)]
-                    #vis #const_token fn #set_fn_ident(
+                    #vis fn #set_fn_ident(
                         &mut self,
                         value: #set_with_input_ty,
                     ) -> #set_output_ty {

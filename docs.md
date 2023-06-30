@@ -30,6 +30,8 @@ If specified, `core::ops::Deref` will be implemented automatically for the curre
 
 ## `nightly` feature and `const fn` accessors
 
+**NOTE: For now, the `nightly` feature is disabled as const trait functionality has been removed from the standard library in order to be reworked. For more info, read <https://github.com/rust-lang/rust/pull/110393>**. The original description follows.
+
 Optionally, the `nightly` feature can be enabled to use `const Trait` functionality: this makes the `BitRange` and `Bit` traits be implemented using `const fn`s for all integer types, and enables the option to use `const fn`s for field accessors.
 
 With the feature enabled, `const fn` accessors can be enabled globally for a struct by replacing `struct` with `const struct` (i.e. `const struct Example(pub u16)`), or on a field-by-field basis by prepending `const` to its type (i.e. `raw: const u16 @ ..`).

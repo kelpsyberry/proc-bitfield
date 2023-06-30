@@ -147,19 +147,3 @@ bitfield! {
         // pub unsafe_as_non_zero_u8: u8 [unsafe_get NonZeroU8, set NonZeroU8] @ 12..=15,
     }
 }
-
-#[cfg(feature = "nightly")]
-bitfield! {
-    /// A bitfield showcasing `const fn` support on nightly Rust.
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub const struct ConstAccessors(pub u16): Debug, FromRaw, IntoRaw, DerefRaw {
-        pub whole_bitfield: u16 @ ..,
-        pub inclusive_range: u8 @ 0..=3,
-        pub exclusive_range: u8 @ 4..7,
-        pub start_and_length: u8 @ 7; 5,
-        pub single_bit_inclusive_range: u8 @ 12..=12,
-        pub single_bit_exclusive_range: u8 @ 13..14,
-        pub single_bit_start_and_length: u8 @ 14; 1,
-        pub flag: bool @ 15,
-    }
-}

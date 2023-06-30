@@ -1,5 +1,4 @@
 /// A trait to read or modify a range of bits inside a value.
-#[cfg_attr(feature = "nightly", const_trait)]
 pub trait BitRange<T> {
     /// Read the given bit range inside `self` as a value of type `T`
     fn bit_range<const START: usize, const END: usize>(self) -> T;
@@ -10,7 +9,6 @@ pub trait BitRange<T> {
 }
 
 /// A trait to read or modify a single bit inside a value.
-#[cfg_attr(feature = "nightly", const_trait)]
 pub trait Bit {
     /// Read the value of the given bit inside `self`.
     fn bit<const BIT: usize>(self) -> bool;
@@ -51,9 +49,6 @@ macro_rules! impl_bitrange_for_types {
     (=> $($dst_ty: ty),*) => {};
     ($src_ty: ty $(, $other_src_ty: ty)* => $($dst_ty: ty),*) => {
         $(
-            #[cfg(feature = "nightly")]
-            impl_bitrange!($src_ty, $dst_ty, const);
-            #[cfg(not(feature = "nightly"))]
             impl_bitrange!($src_ty, $dst_ty);
         )*
         impl_bitrange_for_types!($($other_src_ty),* => $($dst_ty),*);
@@ -105,14 +100,6 @@ macro_rules! impl_bit {
     };
 }
 
-#[cfg(feature = "nightly")]
-macro_rules! impl_bit_for_types {
-    ($($t: ty),*) => {
-        $(impl_bit!($t, const);)*
-    };
-}
-
-#[cfg(not(feature = "nightly"))]
 macro_rules! impl_bit_for_types {
     ($($t: ty),*) => {
         $(impl_bit!($t);)*
