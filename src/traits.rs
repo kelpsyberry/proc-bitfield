@@ -31,14 +31,8 @@ macro_rules! impl_bitrange {
 
             #[inline]
             fn set_bit_range<const START: usize, const END: usize>(self, value: $value) -> Self {
-                const VALUE_BIT_LEN: usize = core::mem::size_of::<$value>() << 3;
                 let selected = END - START;
-                let mask = (if selected == VALUE_BIT_LEN {
-                    <$value>::MAX
-                } else {
-                    ((1 as $value) << selected) - 1
-                } as $storage)
-                    << START;
+                let mask = ((1 as $storage) << (selected - 1) << 1).wrapping_sub(1) << START;
                 (self & !mask) | ((value as $storage) << START & mask)
             }
         }
@@ -53,34 +47,11 @@ macro_rules! impl_bitrange_for_types {
         )*
         impl_bitrange_for_types!($($other_src_ty),* => $($dst_ty),*);
     };
-    ($($($src_ty: ty),* => $($dst_ty: ty),*);*) => {
-        $(
-            impl_bitrange_for_types!($($src_ty),* => $($dst_ty),*);
-        )*
-    };
 }
 
 impl_bitrange_for_types!(
-    u8, i8 => u8, i8;
-    u16, i16 => u8, u16, i8, i16;
-    u32, i32 => u8, u16, u32, i8, i16, i32;
-    u64, i64 => u8, u16, u32, u64, i8, i16, i32, i64;
-    u128, i128 => u8, u16, u32, u64, u128, i8, i16, i32, i64, i128
-);
-
-#[cfg(target_pointer_width = "16")]
-impl_bitrange_for_types!(
-    usize, isize => u8, u16, i8, i16
-);
-
-#[cfg(target_pointer_width = "32")]
-impl_bitrange_for_types!(
-    usize, isize => u8, u16, u32, i8, i16, i32
-);
-
-#[cfg(target_pointer_width = "64")]
-impl_bitrange_for_types!(
-    usize, isize => u8, u16, u32, u64, i8, i16, i32, i64
+    u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize
+        => u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize
 );
 
 macro_rules! impl_bit {

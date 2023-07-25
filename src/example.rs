@@ -1,6 +1,6 @@
 pub mod support;
 
-use crate::bitfield;
+use crate::*;
 use support::*;
 
 bitfield! {
@@ -114,6 +114,39 @@ bitfield! {
         // pub try_as_non_zero_u8: u8 [try_get NonZeroU8, set NonZeroU8] @ 12..=15,
 
 
+        // Unwrapping conversions
+
+        // Will:
+        // - Return a `NonZeroU8` on reads, calling `<NonZeroU8 as TryFrom<u8>>::try_from` and
+        //   unwrapping the result
+        // - Take a `u8` for writes
+        pub unwrap_read_as_non_zero_u8: u8 [unwrap_get NonZeroU8] @ 0..=3,
+
+        // Will:
+        // - Return a `u8` on reads
+        // - Take a `U16` for writes, returning `()`, calling `<U16 as TryInto<u8>>::try_into` and
+        //   unwrapping the result
+        pub unwrap_write_as_u16: u8 [unwrap_set U16] @ 4..=7,
+
+        // Will:
+        // - Return a `SpuriouslyFailingU8` on reads, calling
+        //   `<SpuriouslyFailingU8 as TryFrom<u8>>::try_from` and unwrapping the result
+        // - Take a `SpuriouslyFailingU8` for writes, returning `()`, calling
+        //   `<SpuriouslyFailingU8 as TryInto<u8>>::try_into` and unwrapping the result
+        pub unwrap_both_as_spuriously_failing: u8 [unwrap_both SpuriouslyFailingU8] @ 8..=11,
+        // Equivalent to:
+        // pub try_both_as_spuriously_failing: u8
+        //  [try_get SpuriouslyFailingU8, try_set SpuriouslyFailingU8] @ 8..=11,
+
+        // Will:
+        // - Return a `NonZeroU8` on reads, calling `<NonZeroU8 as TryFrom<u8>>::try_from` and
+        //   unwrapping the result
+        // - Take a `NonZeroU8` for writes, calling `<NonZeroU8 as Into<u8>>::into`
+        pub unwrap_as_non_zero_u8: u8 [unwrap NonZeroU8] @ 12..=15,
+        // Equivalent to:
+        // pub unwrap_as_non_zero_u8: u8 [unwrap_get NonZeroU8, set NonZeroU8] @ 12..=15,
+
+
         // Unsafe/unchecked conversions
 
         // Will:
@@ -146,4 +179,18 @@ bitfield! {
         // Equivalent to:
         // pub unsafe_as_non_zero_u8: u8 [unsafe_get NonZeroU8, set NonZeroU8] @ 12..=15,
     }
+}
+
+/// An enum showcasing `ConvRaw` and `UnwrapBitRange` (on nightly) derives, for straightforward
+/// usage as a bitfield field.
+#[derive(ConvRaw)]
+#[cfg_attr(feature = "nightly", derive(UnwrapBitRange))]
+pub enum ConvRawExample {
+    A,
+    B = 2,
+    C,
+    D = -1,
+    E = 1,
+    F = -128,
+    G = 128,
 }
