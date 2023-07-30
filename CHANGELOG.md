@@ -1,4 +1,10 @@
-## 0.2.4 (`proc-bitfield-macros`)
+## 0.3.0
+- Added `unwrap_get`/`unwrap_set`/`unwrap_both`/`unwrap` as alternatives to the `try_*` field type conversions that also unwrap the `Result`s
+- Added a new derive macro named `ConvRaw` for automatic fallible enum conversions to and from integer types; this allows much easier usage of enums as bitfield fields
+- Added a new derive macro named `UnwrapBitRange` to add an automatic implementation of `BitRange<T>` to any integer types that can be converted to (fallibly) and from  (infallibly) T, unwrapping on reads
+- Fixed an edge case in the default `BitRange` implementation for signed storage types, and expanded the default implementations
+
+## 0.2.4 (`proc-bitfield` only)
 - Fixed `proc-bitfield-macros` dependency (0.2.3 mistakenly depended on `proc-bitfield-macros` 0.2.2)
 
 ## 0.2.3
