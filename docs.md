@@ -2,6 +2,12 @@
 
 A Rust crate to expressively declare bitfield-like `struct`s, automatically ensuring their correctness at compile time and declaring accessors.
 
+## `nightly` feature
+
+Optionally, the `nightly` feature can be enabled to use experimental features exclusive to nightly Rust. This currently enables the `UnwrapBitRange` derive.
+
+# The `bitfield!` macro
+
 ## Automatic trait implementations
 
 After the struct's name and its storage type declaration, a list of automatic trait implementations can be optionally added. For example, the following declaration will result in all automatic implementations being applied:
@@ -27,14 +33,6 @@ If specified, `core::convert::From<$bitfield_ty>` will be implemented automatica
 ### `DerefRaw`
 
 If specified, `core::ops::Deref` will be implemented automatically for the current bitfield struct; the generated `deref` function will read the bitfield's raw value directly, analogously to `&bitfield.0` in a context where the bitfield struct's raw value field is accessible. *Analogously to `FromRaw`, care must be taken to maintain consistency with the visibility of the bitfield struct's raw value outside this implementation.*
-
-## `nightly` feature and `const fn` accessors
-
-**NOTE: For now, `const struct`s are disabled as const trait functionality has been removed from the standard library in order to be reworked. For more info, read <https://github.com/rust-lang/rust/pull/110393>**. The original description follows.
-
-Optionally, the `nightly` feature can be enabled to use `const Trait` functionality: this makes the `BitRange` and `Bit` traits be implemented using `const fn`s for all integer types, and enables the option to use `const fn`s for field accessors.
-
-With the feature enabled, `const fn` accessors can be enabled globally for a struct by replacing `struct` with `const struct` (i.e. `const struct Example(pub u16)`), or on a field-by-field basis by prepending `const` to its type (i.e. `raw: const u16 @ ..`).
 
 ## Field declarations
 
@@ -66,6 +64,11 @@ Fields' "raw" types as specified after the colon are restricted by `BitRange<T>`
     - `try_set` [*Type*], specifying the type that will be fallibly converted into the raw value on writes, using `TryInto<T>`
     - `try_both` [*Type*], as a shorthand for `try_get` [*Type*] and `try_set` [*Type*]
     - `try` [*Type*], as a shorthand for `try_get` [*Type*] and `set` [*Type*]
+- Unwrapping conversions, using the `TryFrom<T>` and `TryInto<T>` traits and unwrapping the conversion results, the relevant options being:
+    - `unwrap_get` [*Type*], specifying the type that the raw value will be fallibly converted into and unwrapped on reads, using `TryFrom<T>` and then `Result::unwrap`
+    - `unwrap_set` [*Type*], specifying the type that will be fallibly converted into the raw value and unwrapped on writes, using `TryInto<T>` and then `Result::unwrap`
+    - `unwrap_both` [*Type*], as a shorthand for `unwrap_get` [*Type*] and `unwrap_set` [*Type*]
+    - `try` [*Type*], as a shorthand for `unwrap_get` [*Type*] and `set` [*Type*]
 - Unsafe conversions, using the `UnsafeFrom<T>` and `UnsafeInto<T>` traits, the relevant options being:
     - `unsafe_get` [*Type*], specifying the type that the raw value will be unsafely converted into on reads, using `UnsafeFrom<T>`
     - `unsafe_set` [*Type*], specifying the type that will be unsafely converted into the raw value on writes, using `UnsafeInto<T>`
@@ -75,3 +78,19 @@ Fields' "raw" types as specified after the colon are restricted by `BitRange<T>`
 [*Visibility*]: https://doc.rust-lang.org/stable/reference/visibility-and-privacy.html
 [IDENTIFIER]: https://doc.rust-lang.org/stable/reference/identifiers.html
 [*Type*]: https://doc.rust-lang.org/stable/reference/types.html#type-expressions
+
+# Other derive macros
+
+The crate provides other supporting derive macros associated with bitfield functionality.
+
+## `ConvRaw`
+
+`ConvRaw` is a derive macro to implement any applicable conversion traits between a non-empty fieldless enum and the builtin integer types corresponding to variant discriminants.
+
+It will implement `TryFrom<T> for Enum` for all builtin integer types `T`, and `From<Enum> for T` for all types that can fit all the enum discriminants.
+
+## `UnwrapBitRange`
+
+`UnwrapBitRange` is a derive macro to implement `BitRange<T> for U` for a type `T` and all builtin integer types `U` used as bitfield storage types.
+
+For each integer type `U`, it requires `T: TryFrom<U> + Into<U>`, and unwraps the result of `<T as TryFrom<U>>::try_from` to convert the field's raw integer value to `T` on reads.

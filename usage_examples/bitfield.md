@@ -1,12 +1,12 @@
-pub mod support;
+## Usage examples
 
-use crate::*;
-use support::*;
+### Bit ranges
+([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.BitRanges.html))
 
+```rust
 bitfield! {
-    /// A bitfield showcasing how to specify bit ranges.
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct BitRanges(pub u16): Debug, FromRaw, IntoRaw, DerefRaw {
+    pub struct BitRanges(pub u16): Debug {
         // A single field spanning the entire bitfield, using an unbounded range:
         pub whole_bitfield: u16 @ ..,                 // Bits 0 to 15
 
@@ -35,10 +35,14 @@ bitfield! {
         pub flag: bool @ 15,                          // Bit 15
     }
 }
+```
 
+### Field access restrictions
+([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.AccessRestrictions.html))
+
+```rust
 bitfield! {
-    /// A bitfield showcasing how to specify access restrictions.
-    pub struct AccessRestrictions(pub u8): Debug, FromRaw, IntoRaw, DerefRaw {
+    pub struct AccessRestrictions(pub u8): Debug {
         // By specifying `read_only` (or `ro`), only `Example::read_only_flag` will be generated (no
         // setters):
         pub read_only_flag: bool [read_only] @ 0,
@@ -57,10 +61,17 @@ bitfield! {
         pub read_write_flag: bool @ 2,
     }
 }
+```
+
+### Field type conversions
+([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.FieldTypeConversions.html))
+
+```rust
+// Types and `UnsafeFrom<T>`/`UnsafeInto<T>` implementations omitted, they can be found in
+// src/example/support.rs
 
 bitfield! {
-    /// A bitfield showcasing various kinds of field type conversions.
-    pub struct FieldTypeConversions(pub u16): Debug, FromRaw, IntoRaw, DerefRaw {
+    pub struct FieldTypeConversions(pub u16): Debug {
         // Infallible conversions
 
         // Will:
@@ -180,21 +191,4 @@ bitfield! {
         // pub unsafe_as_non_zero_u8: u8 [unsafe_get NonZeroU8, set NonZeroU8] @ 12..=15,
     }
 }
-
-/// An enum showcasing the `ConvRaw` derive.
-#[derive(ConvRaw)]
-pub enum ConvRawExample {
-    A,
-    B = 2,
-    C,
-    D = -1,
-    E = 1,
-    F = -128,
-    G = 128,
-}
-
-#[cfg(feature = "nightly")]
-#[cfg_attr(all(doc, feature = "nightly"), doc(cfg(feature = "nightly")))]
-/// A type showcasing the `UnwrapBitRange` derive.
-#[derive(UnwrapBitRange)]
-pub struct UnwrapBitRangeExample(NonZeroU8);
+```

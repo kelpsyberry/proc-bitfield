@@ -20,7 +20,10 @@ pub fn derive(item: TokenStream) -> TokenStream {
         let bits = bits as usize;
         impls.push(quote! {
             impl #impl_generics ::proc_bitfield::BitRange<#type_name #ty_generics> for #int_ty
-                #where_clause_start #type_name #ty_generics: TryFrom<#int_ty> + Into<#int_ty>
+                #where_clause_start #type_name #ty_generics: ::core::convert::TryFrom<#int_ty>
+                    + ::core::convert::Into<#int_ty>,
+                <#type_name #ty_generics as ::core::convert::TryFrom<#int_ty>>::Error:
+                    ::core::fmt::Debug
             {
                 #[inline]
                 fn bit_range<const START: usize, const END: usize>(
