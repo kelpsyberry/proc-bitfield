@@ -1,3 +1,4 @@
+use super::bits::{Bits, BitsSpan};
 use proc_macro::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
 use syn::{
@@ -5,7 +6,7 @@ use syn::{
     parse::{Parse, ParseStream, Result},
     punctuated::Punctuated,
     spanned::Spanned,
-    token, Attribute, Error, Generics, Ident, Lit, Token, Type, Visibility, WhereClause,
+    token, Attribute, Error, Generics, Ident, Token, Type, Visibility, WhereClause,
 };
 
 mod kw {
@@ -34,14 +35,6 @@ mod kw {
     syn::custom_keyword!(FromRaw);
     syn::custom_keyword!(IntoRaw);
     syn::custom_keyword!(DerefRaw);
-}
-
-enum Bits {
-    Single(Lit),
-    Range { start: Lit, end: Lit },
-    RangeInclusive { start: Lit, end: Lit },
-    OffsetAndLength { start: Lit, length: Lit },
-    RangeFull,
 }
 
 enum AccessorKind {
@@ -287,31 +280,7 @@ impl Parse for Struct {
                     ty,
                     get_ty,
                     set_ty,
-                    bits: {
-                        if input.parse::<Token![..]>().is_ok() {
-                            Bits::RangeFull
-                        } else {
-                            let start = input.parse()?;
-                            let lookahead = input.lookahead1();
-                            if lookahead.peek(Token![..=]) {
-                                input.parse::<Token![..=]>()?;
-                                let end = input.parse()?;
-                                Bits::RangeInclusive { start, end }
-                            } else if lookahead.peek(Token![..]) {
-                                input.parse::<Token![..]>()?;
-                                let end = input.parse()?;
-                                Bits::Range { start, end }
-                            } else if lookahead.peek(Token![;]) {
-                                input.parse::<Token![;]>()?;
-                                let length = input.parse()?;
-                                Bits::OffsetAndLength { start, length }
-                            } else if lookahead.peek(Token![,]) || input.is_empty() {
-                                Bits::Single(start)
-                            } else {
-                                return Err(lookahead.error());
-                            }
-                        }
-                    },
+                    bits: input.parse()?,
                 })
             },
             Token![,],
@@ -342,63 +311,49 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         generics,
         where_clause,
         fields,
-    } = match syn::parse(input) {
-        Ok(res) => res,
-        Err(err) => return err.into_compile_error().into(),
-    };
+    } = syn::parse_macro_input!(input);
     let field_fns = fields.iter().map(
         |Field {
              attrs,
              vis,
              ident,
-             ty,
+             ty: field_ty,
              get_ty,
              set_ty,
              bits,
          }| {
-            let storage_ty_bits = quote! { (::core::mem::size_of::<#storage_ty>() << 3) };
-            let ty_bits = quote! { (::core::mem::size_of::<#ty>() << 3) };
+            let storage_ty_bits = quote! { {::core::mem::size_of::<#storage_ty>() << 3} };
+            let field_ty_bits = quote! { {::core::mem::size_of::<#field_ty>() << 3} };
             let set_fn_ident = format_ident!("set_{}", ident);
             let with_fn_ident = format_ident!("with_{}", ident);
-            let (start, end) = match bits {
-                Bits::Single(bit) => (quote! { #bit }, None),
-                Bits::Range { start, end } => (quote! { #start }, Some(quote! { #end })),
-                Bits::RangeInclusive { start, end } => (
-                    quote! { #start },
-                    Some(quote! { {#end + 1} }),
-                ),
-                Bits::OffsetAndLength { start, length } => (
-                    quote! { #start },
-                    Some(quote! { {#start + #length} }),
-                ),
-                Bits::RangeFull => (
-                    quote! { 0 },
-                    Some(quote!{ { ::core::mem::size_of::<#ty>() << 3 } }),
-                ),
-            };
+            let bits_span = bits.clone().into_span();
 
             let getter = if !matches!(&get_ty, AccessorKind::Disabled) {
                 let (calc_get_result, get_output_ty) = match get_ty {
-                    AccessorKind::None => (quote! { raw_result }, quote! { #ty }),
+                    AccessorKind::None => (quote! { raw_result }, quote! { #field_ty }),
                     AccessorKind::Disabled => unreachable!(),
                     AccessorKind::Conv(get_ty) => {
                         (
-                            quote! { <#get_ty as ::core::convert::From<#ty>>::from(raw_result) },
+                            quote! {
+                                <#get_ty as ::core::convert::From<#field_ty>>::from(raw_result)
+                            },
                             quote! { #get_ty },
                         )
                     }
                     AccessorKind::TryConv(get_ty) => (
-                        quote! { <#get_ty as ::core::convert::TryFrom<#ty>>::try_from(raw_result) },
                         quote! {
-                            Result<
+                            <#get_ty as ::core::convert::TryFrom<#field_ty>>::try_from(raw_result)
+                        },
+                        quote! {
+                            ::core::result::Result<
                                 #get_ty,
-                                <#get_ty as ::core::convert::TryFrom<#ty>>::Error,
+                                <#get_ty as ::core::convert::TryFrom<#field_ty>>::Error,
                             >
                         },
                     ),
                     AccessorKind::UnwrapConv(get_ty) => (
                         quote! {
-                            <#get_ty as ::core::convert::TryFrom<#ty>>::try_from(raw_result)
+                            <#get_ty as ::core::convert::TryFrom<#field_ty>>::try_from(raw_result)
                                 .unwrap()
                         },
                         quote! { #get_ty },
@@ -406,7 +361,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     AccessorKind::UnsafeConv(get_ty) => {
                         (
                             quote! { unsafe {
-                                <#get_ty as ::proc_bitfield::UnsafeFrom<#ty>>::unsafe_from(
+                                <#get_ty as ::proc_bitfield::UnsafeFrom<#field_ty>>::unsafe_from(
                                     raw_result,
                                 )
                             } },
@@ -414,29 +369,39 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         )
                     }
                 };
-                let get_value = if let Some(end) = &end {
-                    quote_spanned! {
-                        ident.span() =>
-                        ::proc_bitfield::__private::static_assertions::const_assert!(
-                            #end > #start
-                        );
-                        ::proc_bitfield::__private::static_assertions::const_assert!(
-                            #start < #storage_ty_bits && #end <= #storage_ty_bits
-                        );
-                        ::proc_bitfield::__private::static_assertions::const_assert!(
-                            #end - #start <= #ty_bits
-                        );
-                        let raw_result = <#storage_ty as ::proc_bitfield::BitRange<#ty>>
-                            ::bit_range::<#start, #end>(self.0);
+                let get_value = match &bits_span {
+                    BitsSpan::Single(bit) => {
+                        quote_spanned! {
+                            ident.span() =>
+                            ::proc_bitfield::__private::static_assertions::const_assert!(
+                                #bit < #storage_ty_bits
+                            );
+                            let raw_result = <#storage_ty as ::proc_bitfield::Bit>
+                                ::bit::<#bit>(self.0);
+                        }
                     }
-                } else {
-                    quote_spanned! {
-                        ident.span() =>
-                        ::proc_bitfield::__private::static_assertions::const_assert!(
-                            #start < #storage_ty_bits
-                        );
-                        let raw_result = <#storage_ty as ::proc_bitfield::Bit>
-                            ::bit::<#start>(self.0);
+                    BitsSpan::Range { start, end } => {
+                        quote_spanned! {
+                            ident.span() =>
+                            ::proc_bitfield::__private::static_assertions::const_assert!(
+                                #end > #start
+                            );
+                            ::proc_bitfield::__private::static_assertions::const_assert!(
+                                #start < #storage_ty_bits && #end <= #storage_ty_bits
+                            );
+                            ::proc_bitfield::__private::static_assertions::const_assert!(
+                                #end - #start <= #field_ty_bits
+                            );
+                            let raw_result = <#storage_ty as ::proc_bitfield::BitRange<#field_ty>>
+                                ::bit_range::<#start, #end>(self.0);
+                        }
+                    }
+                    BitsSpan::Full => {
+                        quote_spanned! {
+                            ident.span() =>
+                            let raw_result = <#storage_ty as ::proc_bitfield::BitRange<#field_ty>>
+                                ::bit_range::<0, #storage_ty_bits>(self.0);
+                        }
                     }
                 };
                 quote! {
@@ -463,7 +428,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                 ) = match set_ty {
                     AccessorKind::None => (
                         quote! { value },
-                        ty,
+                        field_ty,
                         quote! {},
                         quote! { () },
                         quote! { raw_result },
@@ -471,7 +436,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     ),
                     AccessorKind::Disabled => unreachable!(),
                     AccessorKind::Conv(set_ty) => (
-                        quote! { <#set_ty as ::core::convert::Into<#ty>>::into(value) },
+                        quote! { <#set_ty as ::core::convert::Into<#field_ty>>::into(value) },
                         set_ty,
                         quote! {},
                         quote! { () },
@@ -479,16 +444,29 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         quote! { Self },
                     ),
                     AccessorKind::TryConv(set_ty) => (
-                        quote! { <#set_ty as ::core::convert::TryInto<#ty>>::try_into(value)? },
+                        quote! {
+                            <#set_ty as ::core::convert::TryInto<#field_ty>>::try_into(value)?
+                        },
                         set_ty,
-                        quote! { Ok(()) },
-                        quote! { Result<(), <#set_ty as ::core::convert::TryInto<#ty>>::Error> },
-                        quote! { Ok(raw_result) },
-                        quote! { Result<Self, <#set_ty as ::core::convert::TryInto<#ty>>::Error> },
+                        quote! { ::core::result::Result::Ok(()) },
+                        quote! {
+                            ::core::result::Result<
+                                (),
+                                <#set_ty as ::core::convert::TryInto<#field_ty>>::Error
+                            >
+                        },
+                        quote! { ::core::result::Result::Ok(raw_result) },
+                        quote! {
+                            ::core::result::Result<
+                                Self,
+                                <#set_ty as ::core::convert::TryInto<#field_ty>>::Error
+                            >
+                        },
                     ),
                     AccessorKind::UnwrapConv(set_ty) => (
                         quote! {
-                            <#set_ty as ::core::convert::TryInto<#ty>>::try_into(value).unwrap()
+                            <#set_ty as ::core::convert::TryInto<#field_ty>>::try_into(value)
+                                .unwrap()
                         },
                         set_ty,
                         quote! {},
@@ -498,7 +476,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     ),
                     AccessorKind::UnsafeConv(set_ty) => (
                         quote! { unsafe {
-                            <#set_ty as ::proc_bitfield::UnsafeInto<#ty>>::unsafe_into(value)
+                            <#set_ty as ::proc_bitfield::UnsafeInto<#field_ty>>::unsafe_into(value)
                         } },
                         set_ty,
                         quote! {},
@@ -507,20 +485,24 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         quote! { Self },
                     ),
                 };
-                let with_value = if let Some(end) = &end {
-                    quote_spanned! {
+                let with_value = match &bits_span {
+                    BitsSpan::Single(bit) => quote_spanned! {
                         ident.span() =>
-                        <#storage_ty as ::proc_bitfield::BitRange<#ty>>
-                            ::set_bit_range::<#start, #end>(self.0, #calc_set_with_value)
-                    }
-                } else {
-                    quote_spanned! {
-                        ident.span() =>
-                        <#storage_ty as ::proc_bitfield::Bit>::set_bit::<#start>(
+                        <#storage_ty as ::proc_bitfield::Bit>::set_bit::<#bit>(
                             self.0,
                             #calc_set_with_value,
                         )
-                    }
+                    },
+                    BitsSpan::Range { start, end } => quote_spanned! {
+                        ident.span() =>
+                        <#storage_ty as ::proc_bitfield::BitRange<#field_ty>>
+                            ::set_bit_range::<#start, #end>(self.0, #calc_set_with_value)
+                    },
+                    BitsSpan::Full => quote_spanned! {
+                        ident.span() =>
+                        <#storage_ty as ::proc_bitfield::BitRange<#field_ty>>
+                            ::set_bit_range::<0, #storage_ty_bits>(self.0, #calc_set_with_value)
+                    },
                 };
                 quote! {
                     #(#attrs)*
@@ -567,9 +549,9 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         auto_trait_impls.push(quote! {
             impl #generics ::core::fmt::Debug for #ident #where_clause {
                 fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                    f.debug_struct(stringify!(#ident))
+                    f.debug_struct(::core::stringify!(#ident))
                         .field("0", &self.0)
-                        #(.field(stringify!(#field_idents), &self.#field_idents()))*
+                        #(.field(::core::stringify!(#field_idents), &self.#field_idents()))*
                         .finish()
                 }
             }

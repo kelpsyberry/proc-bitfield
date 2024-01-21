@@ -18,5 +18,5 @@ features = ["nightly"]
 nightly = ["macros/nightly"]
 
 [dependencies]
-macros = { package = "proc-bitfield-macros", version = "0.3.0" }
+macros = { package = "proc-bitfield-macros", path = "macros", version = "0.3.0" }
 static_assertions = "1.1"

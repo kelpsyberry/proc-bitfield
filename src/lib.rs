@@ -12,6 +12,15 @@ pub mod __private {
 #[doc = include_str!("../usage_examples/bitfield.md")]
 pub use macros::bitfield;
 
+/// TODO: Documentation
+pub use macros::bits;
+
+/// TODO: Documentation
+pub use macros::with_bits;
+
+/// TODO: Documentation
+pub use macros::set_bits;
+
 /// A derive macro to implement any applicable conversion traits between an enum and the builtin
 /// integer types corresponding to variant discriminants.
 #[doc = include_str!("../usage_examples/conv_raw.md")]
