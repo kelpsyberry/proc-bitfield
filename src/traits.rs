@@ -1,10 +1,10 @@
 /// A trait to read or modify a range of bits inside a value.
 pub trait BitRange<T> {
-    /// Read the given bit range inside `self` as a value of type `T`
+    /// Read the `START..END` bit range (with `END` excluded) inside `self` as a value of type `T`.
     fn bit_range<const START: usize, const END: usize>(self) -> T;
 
     #[must_use]
-    /// Set the given bit range inside `self` to a value of type `T`.
+    /// Set the `START..END` bit range (with `END` excluded) inside `self` to a value of type `T`.
     fn set_bit_range<const START: usize, const END: usize>(self, value: T) -> Self;
 }
 

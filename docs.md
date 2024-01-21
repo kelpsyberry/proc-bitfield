@@ -12,8 +12,9 @@ Optionally, the `nightly` feature can be enabled to use experimental features ex
 
 After the struct's name and its storage type declaration, a list of automatic trait implementations can be optionally added. For example, the following declaration will result in all automatic implementations being applied:
 ```rust
+# use proc_bitfield::bitfield;
 bitfield! {
-    pub struct Example(pub u8): Debug, FromRaw, IntoRaw, DerefRaw { ... }
+    pub struct Example(pub u8): Debug, FromRaw, IntoRaw, DerefRaw { /* ... */ }
 }
 ```
 Currently, the allowed automatic implementations are `Debug`, `FromRaw`, `IntoRaw` and `DerefRaw`.

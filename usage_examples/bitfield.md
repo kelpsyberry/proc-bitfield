@@ -4,6 +4,7 @@
 ([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.BitRanges.html))
 
 ```rust
+# use proc_bitfield::bitfield;
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct BitRanges(pub u16): Debug {
@@ -41,6 +42,7 @@ bitfield! {
 ([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.AccessRestrictions.html))
 
 ```rust
+# use proc_bitfield::bitfield;
 bitfield! {
     pub struct AccessRestrictions(pub u8): Debug {
         // By specifying `read_only` (or `ro`), only `Example::read_only_flag` will be generated (no
@@ -67,6 +69,9 @@ bitfield! {
 ([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.FieldTypeConversions.html))
 
 ```rust
+# use proc_bitfield::bitfield;
+# use proc_bitfield::example::support::*;
+
 // Types and `UnsafeFrom<T>`/`UnsafeInto<T>` implementations omitted, they can be found in
 // src/example/support.rs
 

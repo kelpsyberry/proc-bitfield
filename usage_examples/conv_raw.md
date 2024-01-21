@@ -2,6 +2,7 @@
 ([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.ConvRawExample.html))
 
 ```rust
+# use proc_bitfield::ConvRaw;
 #[derive(ConvRaw)]
 pub enum ConvRawExample {
     A,

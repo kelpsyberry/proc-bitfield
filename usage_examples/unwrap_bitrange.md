@@ -5,8 +5,18 @@
 #[derive(UnwrapBitRange)]
 pub struct U8(u8);
 
-impl TryFrom<u16> for U8 { ... }
-impl From<U8> for u16 { ... }
+impl TryFrom<u16> for U8 {
+    /* ... */
+#   fn try_from(other: u16) -> Self {
+#       unimplemented!();        
+#   }
+}
+impl From<U8> for u16 {
+    /* ... */
+#   fn from(other: u16) -> Self {
+#       unimplemented!();        
+#   }
+}
 ```
 
 This will implement `BitRange<U8> for u16`, allowing it to be used as a field inside any
