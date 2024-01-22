@@ -1,4 +1,4 @@
-# Usage example
+## Usage example
 ([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.UnwrapBitRangeExample.html))
 
 ```rust

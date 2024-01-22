@@ -40,7 +40,7 @@ If specified, `core::ops::Deref` will be implemented automatically for the curre
 Fields can be declared by using the form:
 > [*Visibility*] [IDENTIFIER] `:` [*Type*] (`[`(*Option* `,`)<sup>*</sup> *Option*`]`)<sup>?</sup> `@` *FieldRange*
 
-where *FieldRange* corresponds to any of (where *L* is an alias for *LiteralExpression*):
+where *FieldRange* corresponds to any of (where *L* is an alias for [*LiteralExpression*]):
 - `..`, to use every bit
 - *L*`..=`*L*, to use the bits specified by an inclusive range
 - *L*`..`*L*, to use the bits specified by an exclusive range
@@ -76,9 +76,29 @@ Fields' "raw" types as specified after the colon are restricted by `BitRange<T>`
     - `unsafe_both` [*Type*], as shorthand for `unsafe_get` [*Type*] and `unsafe_set` [*Type*]
     - `unsafe` [*Type*], as shorthand for `unsafe_get` [*Type*] and `set` [*Type*]
 
-[*Visibility*]: https://doc.rust-lang.org/stable/reference/visibility-and-privacy.html
-[IDENTIFIER]: https://doc.rust-lang.org/stable/reference/identifiers.html
-[*Type*]: https://doc.rust-lang.org/stable/reference/types.html#type-expressions
+# The `bits!`, `with_bits!` and `set_bits!` macros
+
+These macros provide simplified bitfield functionality without the need to declare a bitfield struct: the value serving as an anonymous bitfield is provided as their first argument, followed by the [*FieldRange*] to access analogously to the fields declarations in the `bitfield!` macro, i.e. `bits!(0x1234_u16, 0..=15)`.
+
+For the `with_bits!` and `set_bits!` macros, a new value for the field is provided by appending `= value` to the field bit range specification, i.e. `with_bits!(0x1234, 0..4 = 0xF)`, `set_bits!(b, 15 = true)`.
+
+## Specifying bitfield and field types
+
+In cases where type inference fails, the accessed field's type `T` can be specified by prepending `T @` to the [*FieldRange*] specification, i.e. `bits!(0x1234_u16, u8 @ 0..=7)`. The macros can also detect simple `as` casts in the provided expressions (for the bitfield's value in all cases, and for the field's new value for `with_bits!` and `set_bits!`) and treat them as explicit type specifications.
+
+Due to implementation limitations, specifying the bitfield's storage type through a cast is required when the field's bit range is `..`, i.e. `bits!(0x1234 as u16, ..)`.
+
+An explicit field type mustn't be specified when accessing a single bit as a boolean (using the single [*LiteralExpression*] form of [*FieldRange*]), as analogously to `bitfield!` fields it's always fixed to `bool`.
+
+## Formal syntax
+
+The general formal syntax for macro calls is:
+
+`bits!`:
+> [*Expression*] `,` ([*Type*]`@`)<sup>?</sup> *FieldRange*
+
+`with_bits!` and `set_bits!`:
+> [*Expression*] `,` ([*Type*]`@`)<sup>?</sup> *FieldRange* `=` [*Expression*]
 
 # Other derive macros
 
@@ -95,3 +115,12 @@ It will implement `TryFrom<T> for Enum` for all builtin integer types `T`, and `
 `UnwrapBitRange` is a derive macro to implement `BitRange<T> for U` for a type `T` and all builtin integer types `U` used as bitfield storage types.
 
 For each integer type `U`, it requires `T: TryFrom<U> + Into<U>`, and unwraps the result of `<T as TryFrom<U>>::try_from` to convert the field's raw integer value to `T` on reads.
+
+This derive macro is currently gated behind the `nightly` feature, as it requires [`#![feature(trivial_bounds)]`](https://doc.rust-lang.org/beta/unstable-book/language-features/trivial-bounds.html) to be enabled in the crate using it.
+
+[*FieldRange*]: #field-declarations
+[*Visibility*]: https://doc.rust-lang.org/stable/reference/visibility-and-privacy.html
+[IDENTIFIER]: https://doc.rust-lang.org/stable/reference/identifiers.html
+[*Type*]: https://doc.rust-lang.org/stable/reference/types.html#type-expressions
+[*Expression*]: https://doc.rust-lang.org/stable/reference/expressions.html
+[*LiteralExpression*]: https://doc.rust-lang.org/stable/reference/expressions/literal-expr.html

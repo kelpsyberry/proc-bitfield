@@ -8,17 +8,20 @@ pub mod __private {
     pub use static_assertions;
 }
 
-/// The main focus of the crate.
+/// The main focus of the crate. Defines a bitfield struct.
 #[doc = include_str!("../usage_examples/bitfield.md")]
 pub use macros::bitfield;
 
-/// TODO: Documentation
+/// Reads a single field from an anonymous bitfield, without creating a bitfield struct.
+#[doc = include_str!("../usage_examples/bits.md")]
 pub use macros::bits;
 
-/// TODO: Documentation
+/// Returns an anonymous bitfield with a single field modified, without creating a bitfield struct.
+#[doc = include_str!("../usage_examples/with_bits.md")]
 pub use macros::with_bits;
 
-/// TODO: Documentation
+/// Modifies a single field in an anonymous bitfield, without creating a bitfield struct.
+#[doc = include_str!("../usage_examples/set_bits.md")]
 pub use macros::set_bits;
 
 /// A derive macro to implement any applicable conversion traits between an enum and the builtin

@@ -2,7 +2,6 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
     parse::{Parse, ParseStream, Result},
-    token::As,
     Error, Expr, Lit, Token, Type,
 };
 
@@ -126,6 +125,16 @@ fn asserts(
     }
 }
 
+struct TyAndAtSign(Type);
+
+impl Parse for TyAndAtSign {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let ty = input.parse()?;
+        input.parse::<Token![@]>()?;
+        Ok(TyAndAtSign(ty))
+    }
+}
+
 pub fn bits(input: TokenStream) -> TokenStream {
     struct Arguments {
         storage_value: Expr,
@@ -139,14 +148,10 @@ pub fn bits(input: TokenStream) -> TokenStream {
             let storage_value = input.parse()?;
             let storage_ty = maybe_ty_from_cast_expr(&storage_value);
             input.parse::<Token![,]>()?;
+            let field_ty = input.parse::<TyAndAtSign>().ok().map(|t| t.0);
             let bits = input.parse()?;
-            let field_ty = if input.parse::<As>().is_ok() {
-                Some(input.parse()?)
-            } else {
-                None
-            };
             if !input.is_empty() {
-                input.error("unexpected extra tokens");
+                return Err(input.error("unexpected extra tokens"));
             }
             Ok(Arguments {
                 storage_value,
@@ -251,19 +256,20 @@ fn with_bits_inner(input: TokenStream) -> syn::Result<(proc_macro2::TokenStream,
             let storage_value = input.parse()?;
             let storage_ty = maybe_ty_from_cast_expr(&storage_value);
             input.parse::<Token![,]>()?;
+            let pre_field_ty = input.parse::<TyAndAtSign>().ok().map(|t| t.0);
             let bits = input.parse()?;
             input.parse::<Token![=]>()?;
             let field_value = input.parse()?;
-            let field_ty = maybe_ty_from_cast_expr(&field_value);
+            let post_field_ty = maybe_ty_from_cast_expr(&field_value);
             if !input.is_empty() {
-                input.error("unexpected extra tokens");
+                return Err(input.error("unexpected extra tokens"));
             }
             Ok(Arguments {
                 storage_value,
                 storage_ty,
                 bits,
                 field_value,
-                field_ty,
+                field_ty: pre_field_ty.or(post_field_ty),
             })
         }
     }
