@@ -1,3 +1,7 @@
+## 0.3.1
+- Added `bits!`, `with_bits!` and `set_bits!` as alternatives to `bitfield!` to operate on raw "bitfield storage" values without declaring a bitfield struct
+- Clarified `BitRange`'s expected behavior in the documentation
+
 ## 0.3.0
 - Added `unwrap_get`/`unwrap_set`/`unwrap_both`/`unwrap` as alternatives to the `try_*` field type conversions that also unwrap the `Result`s
 - Added a new derive macro named `ConvRaw` for automatic fallible enum conversions to and from integer types; this allows much easier usage of enums as bitfield fields
