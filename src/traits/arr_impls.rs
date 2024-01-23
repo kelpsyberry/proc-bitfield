@@ -191,21 +191,21 @@ macro_rules! impl_bits_for_int_type {
                         let start = START + (i << V_SHIFT);
                         let end = (start + V_BITS).min(END);
                         if start >> S_SHIFT == (end - 1) >> S_SHIFT {
-                            let i = start >> S_SHIFT;
+                            let j = start >> S_SHIFT;
                             let written_bits = end - start;
                             let mask = ((1 as $storage) << (written_bits - 1) << 1).wrapping_sub(1)
                                 << (start & S_MASK);
-                            self[i] = (self[i] & !mask)
+                            self[j] = (self[j] & !mask)
                                 | ((value[i] as $storage) << (start & S_MASK) & mask);
                         } else {
-                            for i in start >> S_SHIFT..=(end - 1) >> S_SHIFT {
-                                let start_ = start.max(i << S_SHIFT);
-                                let end_ = end.min((i + 1) << S_SHIFT);
+                            for j in start >> S_SHIFT..=(end - 1) >> S_SHIFT {
+                                let start_ = start.max(j << S_SHIFT);
+                                let end_ = end.min((j + 1) << S_SHIFT);
                                 let written_bits = end_ - start_;
                                 let mask = ((1 as $storage) << (written_bits - 1) << 1)
                                     .wrapping_sub(1)
                                     << (start_ & S_MASK);
-                                self[i] = (self[i] & !mask)
+                                self[j] = (self[j] & !mask)
                                     | (((value[i] >> (start_ - start)) as $storage)
                                         << (start_ & S_MASK)
                                         & mask);
@@ -247,21 +247,21 @@ macro_rules! impl_bits_for_int_type {
                         let start = START + (i << V_SHIFT);
                         let end = (start + V_BITS).min(END);
                         if start >> S_SHIFT == (end - 1) >> S_SHIFT {
-                            let i = start >> S_SHIFT;
+                            let j = start >> S_SHIFT;
                             let written_bits = end - start;
                             let mask = ((1 as $storage) << (written_bits - 1) << 1).wrapping_sub(1)
                                 << (start & S_MASK);
-                            self[i] = (self[i] & !mask)
+                            self[j] = (self[j] & !mask)
                                 | ((value[i] as $storage) << (start & S_MASK) & mask);
                         } else {
-                            for i in start >> S_SHIFT..=(end - 1) >> S_SHIFT {
-                                let start_ = start.max(i << S_SHIFT);
-                                let end_ = end.min((i + 1) << S_SHIFT);
+                            for j in start >> S_SHIFT..=(end - 1) >> S_SHIFT {
+                                let start_ = start.max(j << S_SHIFT);
+                                let end_ = end.min((j + 1) << S_SHIFT);
                                 let written_bits = end_ - start_;
                                 let mask = ((1 as $storage) << (written_bits - 1) << 1)
                                     .wrapping_sub(1)
                                     << (start_ & S_MASK);
-                                self[i] = (self[i] & !mask)
+                                self[j] = (self[j] & !mask)
                                     | (((value[i] >> (start_ - start)) as $storage)
                                         << (start_ & S_MASK)
                                         & mask);
