@@ -1,3 +1,4 @@
+mod arr_impls;
 mod int_impls;
 
 /// Read a range of bits inside a value.
