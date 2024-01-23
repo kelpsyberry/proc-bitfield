@@ -2,15 +2,15 @@ use super::{UnsafeFrom, UnsafeInto};
 
 impl<T, U> UnsafeFrom<U> for T
 where
-    T: From<U>,
+    U: Into<T>,
 {
-    /// Calls `T::from(other)`.
+    /// Calls `U::into(other)`.
     ///
-    /// That is, this conversion is whatever the implementation of [`From`]`<U> for T` chooses to
+    /// That is, this conversion is whatever the implementation of [`Into`]`<T> for U` chooses to
     /// do.
     #[inline]
     unsafe fn unsafe_from(other: U) -> Self {
-        Self::from(other)
+        U::into(other)
     }
 }
 

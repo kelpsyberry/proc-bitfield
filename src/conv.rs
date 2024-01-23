@@ -21,8 +21,10 @@ mod impls;
 /// # Generic Implementations
 ///
 /// - `UnsafeFrom<T> for U` implies [`UnsafeInto`]`<U> for T`
-/// - `UnsafeFrom`, like [`From`], is reflexive, which means that `UnsafeFrom<T> for T` is implemented
+/// - `UnsafeFrom`, like [`From`], is reflexive, which means that `UnsafeFrom<T> for T` is
+///   implemented
 /// - [`From`]`<T> for U` implies `UnsafeFrom<T> for U`
+/// - [`Into`]`<U> for T` implies `UnsafeFrom<T> for U`
 pub trait UnsafeFrom<T> {
     /// Unsafely converts to this type from the input type.
     unsafe fn unsafe_from(_: T) -> Self;
@@ -47,7 +49,9 @@ pub trait UnsafeFrom<T> {
 /// # Generic Implementations
 ///
 /// - [`UnsafeFrom`]`<T> for U` implies `UnsafeInto<U> for T`
-/// - `UnsafeInto`, like [`Into`], is reflexive, which means that `UnsafeInto<T> for T` is implemented
+/// - `UnsafeInto`, like [`Into`], is reflexive, which means that `UnsafeInto<T> for T` is
+///   implemented
+/// - [`From`]`<T> for U` implies `UnsafeInto<U> for T`
 /// - [`Into`]`<U> for T` implies `UnsafeInto<U> for T`
 pub trait UnsafeInto<T> {
     /// Unsafely converts this type into the input type.
