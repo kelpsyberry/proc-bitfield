@@ -1,3 +1,14 @@
+## Unreleased
+- Changes to the `BitRange<T>` and `Bit` traits:
+    - Renamed and split the `BitRange<T>` trait, into `Bits<T>`, `WithBits<T>` and `SetBits<T>`
+    - Split the `Bit` trait into `Bit`, `WithBit` and `SetBit`
+    - `Bits<T>` and `Bit` read from a bitfield
+    - `With*` traits return a changed version of the bitfield
+    - `Set*` traits modify the bitfield in-place
+- Changed the implementations of `UnsafeFrom<T>` and `UnsafeInto<T>` so that either `From<T>` or `Into<T>` automatically implement both
+    - Specifically, `UnsafeFrom<U> for T` now gets implemented if `U: Into<T>` (implied by `T: From<U>`), and `UnsafeInto<U> for T` gets implemented if `U: UnsafeFrom<T>`
+- Added built-in `*Bits` and `*Bit` implementations to use integer arrays as field and storage types, and to use unsized integer slices as storage types (only in the `*bits!` macros)
+
 ## 0.3.1
 - Added `bits!`, `with_bits!` and `set_bits!` as alternatives to `bitfield!` to operate on raw "bitfield storage" values without declaring a bitfield struct
 - Clarified `BitRange`'s expected behavior in the documentation
