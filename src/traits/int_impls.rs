@@ -1,4 +1,4 @@
-use super::{Bit, Bits, WithBit, WithBits, SetBit, SetBits};
+use super::{Bit, Bits, SetBit, SetBits, WithBit, WithBits};
 
 macro_rules! impl_bits_for_int_type {
     ($storage: ty, $value: ty) => {

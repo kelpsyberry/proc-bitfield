@@ -1,7 +1,7 @@
-use crate::conv::UnsafeFrom;
-use core::num::TryFromIntError;
 #[cfg(feature = "nightly")]
 use super::UnwrapBitsExample;
+use crate::conv::UnsafeFrom;
+use core::num::TryFromIntError;
 
 /// Wrapper around [`NonZeroU8`](core::num::NonZeroU8) to implement conversion traits on a foreign
 /// type.

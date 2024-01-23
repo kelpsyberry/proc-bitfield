@@ -18,7 +18,7 @@ pub fn derive(item: TokenStream) -> TokenStream {
 
     for_all_int_types(|bits, _, int_ty| {
         let bits = bits as usize;
-        
+
         let where_clause = quote! {
             #where_clause_start #type_name #ty_generics: ::core::convert::TryFrom<#int_ty>
                 + ::core::convert::Into<#int_ty>,
