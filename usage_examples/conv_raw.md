@@ -3,6 +3,7 @@
 
 ```rust
 # use proc_bitfield::ConvRaw;
+/// An enum showcasing the `ConvRaw` derive.
 #[derive(ConvRaw)]
 pub enum ConvRawExample {
     A,
@@ -18,5 +19,4 @@ pub enum ConvRawExample {
 This will implement:
 - `TryFrom<T> for ConvRawExample` for all integer types `T`
 - `UnsafeFrom<T> for ConvRawExample` for all integer types `T`
-- `From<ConvRawExample> for T` for all integer types `T` that contain all discriminants; in this
-  case, all signed integer types with `>= 16` bits (`i16`, `i32`, `i64`, `i128`)
+- `From<ConvRawExample> for T` for all integer types `T` that contain all discriminants; in this case, all signed integer types with `>= 16` bits (`i16`, `i32`, `i64`, `i128`)

@@ -6,8 +6,9 @@
 ```rust
 # use proc_bitfield::bitfield;
 bitfield! {
+    /// A bitfield showcasing how to specify bit ranges.
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct BitRanges(pub u16): Debug {
+    pub struct BitRanges(pub u16): Debug, FromRaw, IntoRaw, DerefRaw {
         // A single field spanning the entire bitfield, using an unbounded range:
         pub whole_bitfield: u16 @ ..,                 // Bits 0 to 15
 
@@ -30,8 +31,8 @@ bitfield! {
         pub single_bit_start_and_length: u8 @ 14; 1,  // Bit 14
 
         // Single-bit boolean flag, specified using a single bit position.
-        // This is equivalent to the single-bit exclusive range, but uses the `Bit` trait instead of
-        // `BitRange<T>`, and is specific to `bool` (which is conversely not allowed using bit
+        // This is equivalent to the single-bit exclusive range, but uses the `Bit` traits instead
+        // of `Bits<T>`, and is specific to `bool` (which is conversely not allowed using bit
         // ranges).
         pub flag: bool @ 15,                          // Bit 15
     }
@@ -44,7 +45,8 @@ bitfield! {
 ```rust
 # use proc_bitfield::bitfield;
 bitfield! {
-    pub struct AccessRestrictions(pub u8): Debug {
+    /// A bitfield showcasing how to specify access restrictions.
+    pub struct AccessRestrictions(pub u8): Debug, FromRaw, IntoRaw, DerefRaw {
         // By specifying `read_only` (or `ro`), only `Example::read_only_flag` will be generated (no
         // setters):
         pub read_only_flag: bool [read_only] @ 0,
@@ -68,7 +70,7 @@ bitfield! {
 ### Field type conversions
 ([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.FieldTypeConversions.html))
 
-```rust
+```rust,ignore
 # use proc_bitfield::bitfield;
 # use proc_bitfield::example::support::*;
 
@@ -76,7 +78,8 @@ bitfield! {
 // src/example/support.rs
 
 bitfield! {
-    pub struct FieldTypeConversions(pub u16): Debug {
+    /// A bitfield showcasing various kinds of field type conversions.
+    pub struct FieldTypeConversions(pub u16): Debug, FromRaw, IntoRaw, DerefRaw {
         // Infallible conversions
 
         // Will:

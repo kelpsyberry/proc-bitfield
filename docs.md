@@ -4,7 +4,7 @@ A Rust crate to expressively declare bitfield-like `struct`s, automatically ensu
 
 ## `nightly` feature
 
-Optionally, the `nightly` feature can be enabled to use experimental features exclusive to nightly Rust. This currently enables the `UnwrapBitRange` derive.
+Optionally, the `nightly` feature can be enabled to use experimental features exclusive to nightly Rust. This currently enables the `UnwrapBits` derive.
 
 # The `bitfield!` macro
 
@@ -45,7 +45,7 @@ where *FieldRange* corresponds to any of (where *L* is an alias for [*LiteralExp
 - *L*`..=`*L*, to use the bits specified by an inclusive range
 - *L*`..`*L*, to use the bits specified by an exclusive range
 - *L*`;` *L*, to use bits specified by a (start, length) pair
-- *L*, to use a single bit; unlike all other specifications, this is only valid for `bool` fields, and will use the `Bit` trait instead of `BitRange`
+- *L*, to use a single bit; unlike all other specifications, this is only valid for `bool` fields, and will use the `Bit` traits instead of `Bits<T>`
 
 *Option*s can be optionally specified in brackets, matching any of the ones defined below.
 
@@ -55,7 +55,7 @@ Fields are both readable and writable by default, but can be declared read-only 
 
 ### Field type conversions
 
-Fields' "raw" types as specified after the colon are restricted by `BitRange<T>` implementations on the bitfield's contained type; however, accessors can perform conversions specified through optional options. These can be:
+Fields' "raw" types as specified after the colon are restricted by `Bits<T>`, `WithBits<T>` and `SetBits<T>` (or `Bit`, `WithBit` and `SetBit` for boolean fields) implementations on the bitfield's contained type; however, accessors can perform conversions specified through optional options. These can be:
 - Infallible conversions, using the `From<T>` and `Into<T>` traits, the relevant options being:
     - `get` [*Type*], specifying the type that the raw value will be converted into on reads, using `From<T>`
     - `set` [*Type*], specifying the type that will be converted into the raw value on writes, using `Into<T>`
@@ -110,11 +110,11 @@ The crate provides other supporting derive macros associated with bitfield funct
 
 It will implement `TryFrom<T> for Enum` for all builtin integer types `T`, and `From<Enum> for T` for all types that can fit all the enum discriminants.
 
-## `UnwrapBitRange`
+## `UnwrapBits`
 
-`UnwrapBitRange` is a derive macro to implement `BitRange<T> for U` for a type `T` and all builtin integer types `U` used as bitfield storage types.
+`UnwrapBits` is a derive macro to implement `Bits<T> for U`, `WithBits<T> for U` and `SetBits<T> for U` for a type `T` and all builtin integer types `U` used as bitfield storage types.
 
-For each integer type `U`, it requires `T: TryFrom<U> + Into<U>`, and unwraps the result of `<T as TryFrom<U>>::try_from` to convert the field's raw integer value to `T` on reads.
+For each integer type `U`, an implementation will be generated iff `T: TryFrom<U> + Into<U>` and `<T as TryFrom<U>>::Error: Debug`, and unwraps the result of `<T as TryFrom<U>>::try_from` to convert the field's raw integer value to `T` on reads.
 
 This derive macro is currently gated behind the `nightly` feature, as it requires [`#![feature(trivial_bounds)]`](https://doc.rust-lang.org/beta/unstable-book/language-features/trivial-bounds.html) to be enabled in the crate using it.
 

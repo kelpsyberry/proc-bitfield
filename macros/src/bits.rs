@@ -169,7 +169,7 @@ pub fn bits(input: TokenStream) -> TokenStream {
         field_ty,
     } = syn::parse_macro_input!(input);
 
-    let storage_ty_bits = ty_bits(&storage_ty, quote! { &storage_value });
+    let storage_ty_bits = ty_bits(&storage_ty, quote! { storage_value });
     let field_ty_bits = ty_bits(&field_ty, quote! { &result });
     let bits_span = bits.into_span();
     let asserts = asserts(
@@ -180,15 +180,15 @@ pub fn bits(input: TokenStream) -> TokenStream {
         &field_ty_bits,
     );
 
-    let (maybe_uninit_ty, bit_range_trait) = if let Some(field_ty) = &field_ty {
+    let (maybe_uninit_ty, bits_trait) = if let Some(field_ty) = &field_ty {
         (
             quote! { ::core::mem::MaybeUninit::<#field_ty> },
-            quote! { ::proc_bitfield::BitRange::<#field_ty> },
+            quote! { ::proc_bitfield::Bits::<#field_ty> },
         )
     } else {
         (
             quote! { ::core::mem::MaybeUninit },
-            quote! { ::proc_bitfield::BitRange },
+            quote! { ::proc_bitfield::Bits },
         )
     };
 
@@ -203,18 +203,18 @@ pub fn bits(input: TokenStream) -> TokenStream {
                 .into();
             }
             quote! {{
-                let storage_value = #storage_value;
+                let storage_value = &(#storage_value);
                 #asserts
                 ::proc_bitfield::Bit::bit::<#bit>(storage_value)
             }}
         }
         BitsSpan::Range { start, end } => {
             quote! {{
-                let storage_value = #storage_value;
+                let storage_value = &(#storage_value);
                 let mut result = #maybe_uninit_ty::uninit();
                 #asserts
                 result = #maybe_uninit_ty::new(
-                    #bit_range_trait::bit_range::<#start, #end>(storage_value),
+                    #bits_trait::bits::<#start, #end>(storage_value),
                 );
                 unsafe { result.assume_init() }
             }}
@@ -229,11 +229,11 @@ pub fn bits(input: TokenStream) -> TokenStream {
                 .into();
             }
             quote! {{
-                let storage_value = #storage_value;
+                let storage_value = &(#storage_value);
                 let mut result = #maybe_uninit_ty::uninit();
                 #asserts
                 result = #maybe_uninit_ty::new(
-                    #bit_range_trait::bit_range::<0, #storage_ty_bits>(storage_value),
+                    #bits_trait::bits::<0, #storage_ty_bits>(storage_value),
                 );
                 unsafe { result.assume_init() }
             }}
@@ -242,45 +242,45 @@ pub fn bits(input: TokenStream) -> TokenStream {
     .into()
 }
 
-fn with_bits_inner(input: TokenStream) -> syn::Result<(proc_macro2::TokenStream, Expr)> {
-    struct Arguments {
-        storage_value: Expr,
-        storage_ty: Option<Type>,
-        bits: Bits,
-        field_value: Expr,
-        field_ty: Option<Type>,
-    }
+struct ModifyBitsArguments {
+    storage_value: Expr,
+    storage_ty: Option<Type>,
+    bits: Bits,
+    field_value: Expr,
+    field_ty: Option<Type>,
+}
 
-    impl Parse for Arguments {
-        fn parse(input: ParseStream) -> Result<Self> {
-            let storage_value = input.parse()?;
-            let storage_ty = maybe_ty_from_cast_expr(&storage_value);
-            input.parse::<Token![,]>()?;
-            let pre_field_ty = input.parse::<TyAndAtSign>().ok().map(|t| t.0);
-            let bits = input.parse()?;
-            input.parse::<Token![=]>()?;
-            let field_value = input.parse()?;
-            let post_field_ty = maybe_ty_from_cast_expr(&field_value);
-            if !input.is_empty() {
-                return Err(input.error("unexpected extra tokens"));
-            }
-            Ok(Arguments {
-                storage_value,
-                storage_ty,
-                bits,
-                field_value,
-                field_ty: pre_field_ty.or(post_field_ty),
-            })
+impl Parse for ModifyBitsArguments {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let storage_value = input.parse()?;
+        let storage_ty = maybe_ty_from_cast_expr(&storage_value);
+        input.parse::<Token![,]>()?;
+        let pre_field_ty = input.parse::<TyAndAtSign>().ok().map(|t| t.0);
+        let bits = input.parse()?;
+        input.parse::<Token![=]>()?;
+        let field_value = input.parse()?;
+        let post_field_ty = maybe_ty_from_cast_expr(&field_value);
+        if !input.is_empty() {
+            return Err(input.error("unexpected extra tokens"));
         }
+        Ok(ModifyBitsArguments {
+            storage_value,
+            storage_ty,
+            bits,
+            field_value,
+            field_ty: pre_field_ty.or(post_field_ty),
+        })
     }
+}
 
-    let Arguments {
+pub fn with_bits(input: TokenStream) -> TokenStream {
+    let ModifyBitsArguments {
         storage_value,
         storage_ty,
         bits,
         field_value,
         field_ty,
-    } = syn::parse(input)?;
+    } = syn::parse_macro_input!(input);
 
     let storage_ty_bits = ty_bits(&storage_ty, quote! { &storage_value });
     let field_ty_bits = ty_bits(&field_ty, quote! { &field_value });
@@ -293,70 +293,127 @@ fn with_bits_inner(input: TokenStream) -> syn::Result<(proc_macro2::TokenStream,
         &field_ty_bits,
     );
 
-    let bit_range_trait = if let Some(field_ty) = &field_ty {
-        quote! { ::proc_bitfield::BitRange::<#field_ty> }
+    let bits_trait = if let Some(field_ty) = &field_ty {
+        quote! { ::proc_bitfield::WithBits::<#field_ty> }
     } else {
-        quote! { ::proc_bitfield::BitRange }
+        quote! { ::proc_bitfield::WithBits }
     };
 
-    Ok((
-        match bits_span {
-            BitsSpan::Single(bit) => {
-                if field_ty.is_some() {
-                    return Err(Error::new_spanned(
-                        &storage_value,
-                        "can't specify a field type for a boolean flag",
-                    ));
-                }
-                quote! {{
-                    let storage_value = #storage_value;
-                    #asserts
-                    ::proc_bitfield::Bit::set_bit::<#bit>(storage_value, #field_value)
-                }}
+    match bits_span {
+        BitsSpan::Single(bit) => {
+            if field_ty.is_some() {
+                return Error::new_spanned(
+                    &storage_value,
+                    "can't specify a field type for a boolean flag",
+                )
+                .into_compile_error()
+                .into();
             }
-            BitsSpan::Range { start, end } => {
-                quote! {{
-                    let storage_value = #storage_value;
-                    let field_value = #field_value;
-                    #asserts
-                    #bit_range_trait::set_bit_range::<#start, #end>(storage_value, field_value)
-                }}
+            quote! {{
+                let storage_value = #storage_value;
+                #asserts
+                ::proc_bitfield::WithBit::with_bit::<#bit>(storage_value, #field_value)
+            }}
+        }
+        BitsSpan::Range { start, end } => {
+            quote! {{
+                let storage_value = #storage_value;
+                let field_value = #field_value;
+                #asserts
+                #bits_trait::with_bits::<#start, #end>(storage_value, field_value)
+            }}
+        }
+        BitsSpan::Full => {
+            if storage_ty.is_none() {
+                return Error::new_spanned(
+                    &storage_value,
+                    "Input type needs to be specified with `as T` to span the full range",
+                )
+                .into_compile_error()
+                .into();
             }
-            BitsSpan::Full => {
-                if storage_ty.is_none() {
-                    return Err(Error::new_spanned(
-                        &storage_value,
-                        "Input type needs to be specified with `as T` to span the full range",
-                    ));
-                }
-                quote! {{
-                    let storage_value = #storage_value;
-                    let field_value = #field_value;
-                    #asserts
-                    #bit_range_trait::set_bit_range::<0, #storage_ty_bits>(storage_value, field_value)
-                }}
-            }
-        },
-        storage_value,
-    ))
-}
-
-pub fn with_bits(input: TokenStream) -> TokenStream {
-    match with_bits_inner(input) {
-        Ok((result, _)) => result.into(),
-        Err(err) => err.into_compile_error().into(),
+            quote! {{
+                let storage_value = #storage_value;
+                let field_value = #field_value;
+                #asserts
+                #bits_trait::with_bits::<0, #storage_ty_bits>(storage_value, field_value)
+            }}
+        }
     }
+    .into()
 }
 
 pub fn set_bits(input: TokenStream) -> TokenStream {
-    match with_bits_inner(input) {
-        Ok((result, storage_value)) => {
-            let storage_value = match storage_value {
-                Expr::Cast(expr_cast) => *expr_cast.expr,
-                _ => storage_value,
-            };
-            quote! { #storage_value = #result; }.into()
+    let ModifyBitsArguments {
+        storage_value,
+        storage_ty,
+        bits,
+        field_value,
+        field_ty,
+    } = syn::parse_macro_input!(input);
+
+    let storage_value = match storage_value {
+        Expr::Cast(expr_cast) => *expr_cast.expr,
+        _ => storage_value,
+    };
+
+    let storage_ty_bits = ty_bits(&storage_ty, quote! { storage_value });
+    let field_ty_bits = ty_bits(&field_ty, quote! { &field_value });
+    let bits_span = bits.into_span();
+    let asserts = asserts(
+        &bits_span,
+        storage_ty.is_some(),
+        &storage_ty_bits,
+        field_ty.is_some(),
+        &field_ty_bits,
+    );
+
+    let bits_trait = if let Some(field_ty) = &field_ty {
+        quote! { ::proc_bitfield::SetBits::<#field_ty> }
+    } else {
+        quote! { ::proc_bitfield::SetBits }
+    };
+
+    match bits_span {
+        BitsSpan::Single(bit) => {
+            if field_ty.is_some() {
+                return Error::new_spanned(
+                    &storage_value,
+                    "can't specify a field type for a boolean flag",
+                )
+                .into_compile_error()
+                .into();
+            }
+            quote! {{
+                let storage_value = &mut #storage_value;
+                #asserts
+                ::proc_bitfield::SetBit::set_bit::<#bit>(storage_value, #field_value);
+            }}
         }
-        Err(err) => err.into_compile_error().into(),
+        BitsSpan::Range { start, end } => {
+            quote! {{
+                let storage_value = &mut #storage_value;
+                let field_value = #field_value;
+                #asserts
+                #bits_trait::set_bits::<#start, #end>(storage_value, field_value);
+            }}
+        }
+        BitsSpan::Full => {
+            if storage_ty.is_none() {
+                return Error::new_spanned(
+                    &storage_value,
+                    "Input type needs to be specified with `as T` to span the full range",
+                )
+                .into_compile_error()
+                .into();
+            }
+            quote! {{
+                let storage_value = &mut #storage_value;
+                let field_value = #field_value;
+                #asserts
+                #bits_trait::set_bits::<0, #storage_ty_bits>(storage_value, field_value);
+            }}
+        }
     }
+    .into()
 }

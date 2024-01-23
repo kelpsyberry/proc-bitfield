@@ -1,7 +1,7 @@
 use crate::conv::UnsafeFrom;
 use core::num::TryFromIntError;
 #[cfg(feature = "nightly")]
-use super::UnwrapBitRangeExample;
+use super::UnwrapBitsExample;
 
 /// Wrapper around [`NonZeroU8`](core::num::NonZeroU8) to implement conversion traits on a foreign
 /// type.
@@ -104,20 +104,20 @@ impl UnsafeFrom<SpuriouslyFailingU8> for u8 {
 }
 
 #[cfg(feature = "nightly")]
-impl TryFrom<u8> for UnwrapBitRangeExample {
+impl TryFrom<u8> for UnwrapBitsExample {
     type Error = ();
 
     fn try_from(other: u8) -> Result<Self, Self::Error> {
         match NonZeroU8::try_from(other) {
-            Ok(v) => Ok(UnwrapBitRangeExample(v)),
+            Ok(v) => Ok(UnwrapBitsExample(v)),
             Err(_) => Err(()),
         }
     }
 }
 
 #[cfg(feature = "nightly")]
-impl From<UnwrapBitRangeExample> for u8 {
-    fn from(other: UnwrapBitRangeExample) -> Self {
+impl From<UnwrapBitsExample> for u8 {
+    fn from(other: UnwrapBitsExample) -> Self {
         other.0.into()
     }
 }

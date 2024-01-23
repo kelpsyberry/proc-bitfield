@@ -2,7 +2,7 @@ mod bitfield;
 mod bits;
 mod enum_conv;
 #[cfg(feature = "nightly")]
-mod unwrap_bitrange;
+mod unwrap_bits;
 mod utils;
 
 use proc_macro::TokenStream;
@@ -33,7 +33,7 @@ pub fn derive_conv_raw(item: TokenStream) -> TokenStream {
 }
 
 #[cfg(feature = "nightly")]
-#[proc_macro_derive(UnwrapBitRange)]
-pub fn derive_unwrap_bitrange(item: TokenStream) -> TokenStream {
-    unwrap_bitrange::derive(item)
+#[proc_macro_derive(UnwrapBits)]
+pub fn derive_unwrap_bits(item: TokenStream) -> TokenStream {
+    unwrap_bits::derive(item)
 }

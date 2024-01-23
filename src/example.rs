@@ -29,8 +29,8 @@ bitfield! {
         pub single_bit_start_and_length: u8 @ 14; 1,  // Bit 14
 
         // Single-bit boolean flag, specified using a single bit position.
-        // This is equivalent to the single-bit exclusive range, but uses the `Bit` trait instead of
-        // `BitRange<T>`, and is specific to `bool` (which is conversely not allowed using bit
+        // This is equivalent to the single-bit exclusive range, but uses the `Bit` traits instead
+        // of `Bits<T>`, and is specific to `bool` (which is conversely not allowed using bit
         // ranges).
         pub flag: bool @ 15,                          // Bit 15
     }
@@ -195,6 +195,6 @@ pub enum ConvRawExample {
 
 #[cfg(feature = "nightly")]
 #[cfg_attr(all(doc, feature = "nightly"), doc(cfg(feature = "nightly")))]
-/// A type showcasing the `UnwrapBitRange` derive.
-#[derive(UnwrapBitRange)]
-pub struct UnwrapBitRangeExample(NonZeroU8);
+/// A type showcasing the `UnwrapBits` derive.
+#[derive(UnwrapBits)]
+pub struct UnwrapBitsExample(NonZeroU8);

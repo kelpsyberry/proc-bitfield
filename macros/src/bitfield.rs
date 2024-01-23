@@ -377,7 +377,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                 #bit < #storage_ty_bits
                             );
                             let raw_result = <#storage_ty as ::proc_bitfield::Bit>
-                                ::bit::<#bit>(self.0);
+                                ::bit::<#bit>(&self.0);
                         }
                     }
                     BitsSpan::Range { start, end } => {
@@ -392,15 +392,15 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             ::proc_bitfield::__private::static_assertions::const_assert!(
                                 #end - #start <= #field_ty_bits
                             );
-                            let raw_result = <#storage_ty as ::proc_bitfield::BitRange<#field_ty>>
-                                ::bit_range::<#start, #end>(self.0);
+                            let raw_result = <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
+                                ::bits::<#start, #end>(&self.0);
                         }
                     }
                     BitsSpan::Full => {
                         quote_spanned! {
                             ident.span() =>
-                            let raw_result = <#storage_ty as ::proc_bitfield::BitRange<#field_ty>>
-                                ::bit_range::<0, #storage_ty_bits>(self.0);
+                            let raw_result = <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
+                                ::bits::<0, #storage_ty_bits>(&self.0);
                         }
                     }
                 };
@@ -485,25 +485,47 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         quote! { Self },
                     ),
                 };
+
                 let with_value = match &bits_span {
                     BitsSpan::Single(bit) => quote_spanned! {
                         ident.span() =>
-                        <#storage_ty as ::proc_bitfield::Bit>::set_bit::<#bit>(
+                        <#storage_ty as ::proc_bitfield::WithBit>::with_bit::<#bit>(
                             self.0,
                             #calc_set_with_value,
                         )
                     },
                     BitsSpan::Range { start, end } => quote_spanned! {
                         ident.span() =>
-                        <#storage_ty as ::proc_bitfield::BitRange<#field_ty>>
-                            ::set_bit_range::<#start, #end>(self.0, #calc_set_with_value)
+                        <#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
+                            ::with_bits::<#start, #end>(self.0, #calc_set_with_value)
                     },
                     BitsSpan::Full => quote_spanned! {
                         ident.span() =>
-                        <#storage_ty as ::proc_bitfield::BitRange<#field_ty>>
-                            ::set_bit_range::<0, #storage_ty_bits>(self.0, #calc_set_with_value)
+                        <#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
+                            ::with_bits::<0, #storage_ty_bits>(self.0, #calc_set_with_value)
                     },
                 };
+
+                let set_value = match &bits_span {
+                    BitsSpan::Single(bit) => quote_spanned! {
+                        ident.span() =>
+                        <#storage_ty as ::proc_bitfield::SetBit>::set_bit::<#bit>(
+                            &mut self.0,
+                            #calc_set_with_value,
+                        )
+                    },
+                    BitsSpan::Range { start, end } => quote_spanned! {
+                        ident.span() =>
+                        <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
+                            ::set_bits::<#start, #end>(&mut self.0, #calc_set_with_value)
+                    },
+                    BitsSpan::Full => quote_spanned! {
+                        ident.span() =>
+                        <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
+                            ::set_bits::<0, #storage_ty_bits>(&mut self.0, #calc_set_with_value)
+                    },
+                };
+
                 quote! {
                     #(#attrs)*
                     #[inline]
@@ -524,7 +546,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         &mut self,
                         value: #set_with_input_ty,
                     ) -> #set_output_ty {
-                        self.0 = #with_value;
+                        #set_value;
                         #set_ok
                     }
                 }
