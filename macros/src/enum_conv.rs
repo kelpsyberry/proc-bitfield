@@ -191,6 +191,56 @@ pub fn derive_conv_raw(item: TokenStream) -> TokenStream {
                 impls.push(into_raw_impl);
             });
 
+            // Implement From<bool> and Into<bool>
+            if let s @ [_, _] = discr_data.as_slice() {
+                let mut vec = s
+                    .iter()
+                    .zip(&data.variants)
+                    .filter_map(|((_, d), v)| {
+                        let ident = &v.ident;
+                        let ident = quote! (#type_name::#ident);
+                        match d {
+                            0 => Some((false, ident)),
+                            1 => Some((true, ident)),
+                            _ => None,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                vec.sort_by(|(l, _), (r, _)| (*l as u8).cmp(&(*r as u8)));
+                if let &[(false, ref fi), (true, ref ti)] = vec.as_slice() {
+                    let impl_from_bool = quote! {
+                        impl #impl_generics ::core::convert::From<bool>
+                            for #type_name #ty_generics
+                            #where_clause
+                        {
+                            fn from(other: bool) -> #type_name #ty_generics {
+                                match other {
+                                    false => #fi,
+                                    true => #ti,
+                                }
+                            }
+                        }
+                    };
+
+                    let impl_into_bool = quote! {
+                        #[allow(unused_variables)]
+                        impl #impl_generics ::core::convert::From<#type_name #ty_generics> for bool
+                            #where_clause
+                        {
+                            fn from(other: #type_name #ty_generics) -> bool {
+                                match other {
+                                    #fi => false,
+                                     ti => true,
+                                }
+                            }
+                        }
+                    };
+
+                    impls.push(impl_into_bool);
+                    impls.push(impl_from_bool);
+                }
+            }
+
             quote! { #(#impls)* }.into()
         }
 
