@@ -5,7 +5,7 @@
 # use proc_bitfield::ConvRaw;
 /// An enum showcasing the `ConvRaw` derive.
 #[derive(ConvRaw)]
-pub enum ConvRawExample {
+pub enum ConvRawIntExample {
     A,
     B = 2,
     C,
@@ -14,9 +14,18 @@ pub enum ConvRawExample {
     F = -128,
     G = 128,
 }
+
+/// An enum showcasing the `ConvRaw` derive when allowing for boolean values.
+#[derive(ConvRaw)]
+pub enum ConvRawBoolExample {
+    False, // Implicitly, this value is treated as 0 (false).
+    True,
+}
 ```
 
 This will implement:
-- `TryFrom<T> for ConvRawExample` for all integer types `T`
-- `UnsafeFrom<T> for ConvRawExample` for all integer types `T`
-- `From<ConvRawExample> for T` for all integer types `T` that contain all discriminants; in this case, all signed integer types with `>= 16` bits (`i16`, `i32`, `i64`, `i128`)
+- `TryFrom<T> for ConvRawIntExample` for all integer types `T`
+- `UnsafeFrom<T> for ConvRawIntExample` for all integer types `T`
+- `From<ConvRawIntExample> for T` for all integer types `T` that contain all discriminants; in this case, all signed integer types with `>= 16` bits (`i16`, `i32`, `i64`, `i128`)
+- `From<bool> for ConvRawBoolExample`
+- `From<ConvRawBoolExample> for bool`
