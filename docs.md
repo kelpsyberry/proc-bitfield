@@ -55,26 +55,44 @@ Fields are both readable and writable by default, but can be declared read-only 
 
 ### Field type conversions
 
-Fields' "raw" types as specified after the colon are restricted by `Bits<T>`, `WithBits<T>` and `SetBits<T>` (or `Bit`, `WithBit` and `SetBit` for boolean fields) implementations on the bitfield's contained type; however, accessors can perform conversions specified through optional options. These can be:
+Fields' "raw" types as specified after the colon are restricted by `Bits<T>`, `WithBits<T>` and `SetBits<T>` (or `Bit`, `WithBit` and `SetBit` for boolean fields) implementations on the bitfield's contained type; however, accessors can perform conversions specified through optional options.
+
+For conversion functions, the function can be specified as either a path or a parenthesized expression that resolves to a callable value:
+
+> *ConvFn*: [*PathExpression*] | [*GroupedExpression*]
+
+These can be:
 - Infallible conversions, using the `From<T>` and `Into<T>` traits, the relevant options being:
     - `get` [*Type*], specifying the type that the raw value will be converted into on reads, using `From<T>`
     - `set` [*Type*], specifying the type that will be converted into the raw value on writes, using `Into<T>`
     - [*Type*], as a shorthand for `get` [*Type*] and `set` [*Type*]
+- Infallible conversion functions. the relevant options being:
+    - `get_fn` [*ConvFn*] (`->` [*Type*])<sup>?</sup>, specifying the function that will convert the raw value into the given type (same as the raw type if not specified) on reads
+    - `set_fn` [*ConvFn*] (`(` [*Type*] `)`)<sup>?</sup>, specifying the function that will convert a value of the given type (same as the raw type if not specified) into the raw value on writes
+- Unsafe conversions, using the `UnsafeFrom<T>` and `UnsafeInto<T>` traits, the relevant options being:
+    - `unsafe_get` [*Type*], specifying the type that the raw value will be unsafely converted into on reads, using `UnsafeFrom<T>`; the getter will become unsafe
+    - `unsafe_set` [*Type*], specifying the type that will be unsafely converted into the raw value on writes, using `UnsafeInto<T>`; the setter will become unsafe
+    - `unsafe_both` [*Type*], as shorthand for `unsafe_get` [*Type*] and `unsafe_set` [*Type*]
+    - `unsafe` [*Type*], as shorthand for `unsafe_get` [*Type*] and `set` [*Type*]
+- Unsafe conversion functions. the relevant options being:
+    - `unsafe_get_fn` [*ConvFn*] (`->` [*Type*])<sup>?</sup>, specifying the function that will unsafely convert the raw value into the given type (same as the raw type if not specified) on reads; the getter will become unsafe
+    - `unsafe_set_fn` [*ConvFn*] (`(` [*Type*] `)`)<sup>?</sup>, specifying the function that will unsafely convert a value of the given type (same as the raw type if not specified) into the raw value on writes; the setter will become unsafe
 - Fallible conversions, using the `TryFrom<T>` and `TryInto<T>` traits, the relevant options being:
     - `try_get` [*Type*], specifying the type that the raw value will be fallibly converted into on reads, using `TryFrom<T>`
     - `try_set` [*Type*], specifying the type that will be fallibly converted into the raw value on writes, using `TryInto<T>`
     - `try_both` [*Type*], as a shorthand for `try_get` [*Type*] and `try_set` [*Type*]
     - `try` [*Type*], as a shorthand for `try_get` [*Type*] and `set` [*Type*]
+- Fallible conversion functions. the relevant options being:
+    - `try_get_fn` [*ConvFn*] `->` [*Type*], specifying the function that will convert the raw value into the given type on reads; the type should implement `Try`
+    - `try_set_fn` [*ConvFn*] (`(` [*Type*] `)`)<sup>?</sup> `->` [*Type*], specifying the function that will convert a value of the given input type (same as the raw type if not specified) into a result type that has the raw value as its output on writes; the result type must implement `Try`
 - Unwrapping conversions, using the `TryFrom<T>` and `TryInto<T>` traits and unwrapping the conversion results, the relevant options being:
     - `unwrap_get` [*Type*], specifying the type that the raw value will be fallibly converted into and unwrapped on reads, using `TryFrom<T>` and then `Result::unwrap`
     - `unwrap_set` [*Type*], specifying the type that will be fallibly converted into the raw value and unwrapped on writes, using `TryInto<T>` and then `Result::unwrap`
     - `unwrap_both` [*Type*], as a shorthand for `unwrap_get` [*Type*] and `unwrap_set` [*Type*]
     - `try` [*Type*], as a shorthand for `unwrap_get` [*Type*] and `set` [*Type*]
-- Unsafe conversions, using the `UnsafeFrom<T>` and `UnsafeInto<T>` traits, the relevant options being:
-    - `unsafe_get` [*Type*], specifying the type that the raw value will be unsafely converted into on reads, using `UnsafeFrom<T>`
-    - `unsafe_set` [*Type*], specifying the type that will be unsafely converted into the raw value on writes, using `UnsafeInto<T>`
-    - `unsafe_both` [*Type*], as shorthand for `unsafe_get` [*Type*] and `unsafe_set` [*Type*]
-    - `unsafe` [*Type*], as shorthand for `unsafe_get` [*Type*] and `set` [*Type*]
+- Unwrapping conversion functions. the relevant options being:
+    - `unwrap_get_fn` [*ConvFn*] (`->` [*Type*])<sup>?</sup>, specifying the function that will convert the raw value into the given type (same as the raw type if not specified) on reads, after unwrapping its result
+    - `unwrap_set_fn` [*ConvFn*] (`(` [*Type*] `)`)<sup>?</sup>, specifying the function that will convert a value of the given type (same as the raw type if not specified) into the raw value on writes, after unwrapping its result
 
 # The `bits!`, `with_bits!` and `set_bits!` macros
 
@@ -121,8 +139,11 @@ For each integer type `U`, an implementation will be generated iff `T: TryFrom<U
 This derive macro is currently gated behind the `nightly` feature, as it requires [`#![feature(trivial_bounds)]`](https://doc.rust-lang.org/beta/unstable-book/language-features/trivial-bounds.html) to be enabled in the crate using it.
 
 [*FieldRange*]: #field-declarations
+[*ConvFn*]: #field-type-conversions
 [*Visibility*]: https://doc.rust-lang.org/stable/reference/visibility-and-privacy.html
 [IDENTIFIER]: https://doc.rust-lang.org/stable/reference/identifiers.html
 [*Type*]: https://doc.rust-lang.org/stable/reference/types.html#type-expressions
 [*Expression*]: https://doc.rust-lang.org/stable/reference/expressions.html
 [*LiteralExpression*]: https://doc.rust-lang.org/stable/reference/expressions/literal-expr.html
+[*PathExpression*]: https://doc.rust-lang.org/stable/reference/expressions/path-expr.html
+[*GroupedExpression*]: https://doc.rust-lang.org/stable/reference/expressions/grouped-expr.html

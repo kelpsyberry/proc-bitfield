@@ -100,6 +100,69 @@ bitfield! {
         // pub u8_with_parity: u8 [get U8WithParity, set U8WithParity] @ 8..=11,
 
 
+        // Infallible conversion functions
+
+        // Will:
+        // - Return a `U8WithParity` on reads, calling `<U8WithParity as From<u8>>::from`
+        // - Take a `u8` for writes
+        pub read_as_u8_with_parity_fn: u8 [get_fn U8WithParity::from -> U8WithParity] @ 0..=3,
+
+        // Will:
+        // - Return a `u8` on reads
+        // - Take a `U8WithParity` for writes, calling `<U8WithParity as Into<u8>>::into`
+        pub write_as_u8_with_parity_fn: u8 [set_fn U8WithParity::into(U8WithParity)] @ 4..=7,
+
+
+        // Unsafe/unchecked conversions
+
+        // Will:
+        // - Return a `NonZeroU8` on reads, marking them as `unsafe` and calling
+        //   `<NonZeroU8 as UnsafeFrom<u8>>::unsafe_from`
+        // - Take a `u8` for writes
+        pub unsafe_read_as_non_zero_u8: u8 [unsafe_get NonZeroU8] @ 0..=3,
+
+        // Will:
+        // - Return a `u8` on reads
+        // - Take a `U16` for writes, marking them as `unsafe` and calling
+        //   `<U16 as UnsafeInto<u8>>::unsafe_into`
+        pub unsafe_write_as_u16: u8 [unsafe_set U16] @ 4..=7,
+
+        // Will:
+        // - Return a `SpuriouslyFailingU8` on reads, marking them as `unsafe` and calling
+        //   `<SpuriouslyFailingU8 as UnsafeFrom<u8>>::unsafe_from`
+        // - Take a `SpuriouslyFailingU8` for writes, marking them as `unsafe` and calling
+        //   `<SpuriouslyFailingU8 as UnsafeInto<u8>>::unsafe_into`
+        pub unsafe_as_spuriously_failing: u8 [unsafe_both SpuriouslyFailingU8] @ 8..=11,
+        // Equivalent to:
+        // pub unsafe_as_spuriously_failing: u8
+        //  [unsafe_get SpuriouslyFailingU8, unsafe_set SpuriouslyFailingU8] @ 8..=11,
+
+        // Will:
+        // - Return a `NonZeroU8` on reads, marking them as `unsafe` and calling
+        //   `<NonZeroU8 as UnsafeFrom<u8>>::unsafe_from`
+        // - Take a `NonZeroU8` for writes, calling `<NonZeroU8 as Into<u8>>::into`
+        pub unsafe_as_non_zero_u8: u8 [unsafe NonZeroU8] @ 12..=15,
+        // Equivalent to:
+        // pub unsafe_as_non_zero_u8: u8 [unsafe_get NonZeroU8, set NonZeroU8] @ 12..=15,
+
+
+        // Unsafe/unchecked conversion functions
+
+        // Will:
+        // - Return a `NonZeroU8` on reads, marking them as `unsafe` and calling
+        //   `<NonZeroU8 as UnsafeFrom<u8>>::unsafe_from`
+        // - Take a `u8` for writes
+        pub unsafe_read_as_non_zero_u8_fn: u8 [
+            unsafe_get_fn NonZeroU8::unsafe_from -> NonZeroU8
+        ] @ 0..=3,
+
+        // Will:
+        // - Return a `u8` on reads
+        // - Take a `U16` for writes, marking them as `unsafe` and calling
+        //   `<U16 as UnsafeInto<u8>>::unsafe_into`
+        pub unsafe_write_as_u16_fn: u8 [unsafe_set_fn U16::unsafe_into(U16)] @ 4..=7,
+
+
         // Fallible conversions
 
         // Will:
@@ -131,6 +194,25 @@ bitfield! {
         pub try_as_non_zero_u8: u8 [try NonZeroU8] @ 12..=15,
         // Equivalent to:
         // pub try_as_non_zero_u8: u8 [try_get NonZeroU8, set NonZeroU8] @ 12..=15,
+
+
+        // Fallible conversion functions
+
+        // Will:
+        // - Return a `Result<NonZeroU8, TryFromIntError>` on reads, calling
+        //   `<NonZeroU8 as TryFrom<u8>>::try_from`
+        // - Take a `u8` for writes
+        pub try_read_as_non_zero_u8_fn: u8 [
+            try_get_fn NonZeroU8::try_from -> Result<NonZeroU8, TryFromIntError>
+        ] @ 0..=3,
+
+        // Will:
+        // - Return a `u8` on reads
+        // - Take a `U16` for writes, returning `Result<(), TryFromIntError>` and calling
+        //   `<U16 as TryInto<u8>>::try_into`
+        pub try_write_as_u16_fn: u8 [
+            try_set_fn U16::try_into(U16) -> Result<u8, TryFromIntError>
+        ] @ 4..=7,
 
 
         // Unwrapping conversions
@@ -166,37 +248,19 @@ bitfield! {
         // pub unwrap_as_non_zero_u8: u8 [unwrap_get NonZeroU8, set NonZeroU8] @ 12..=15,
 
 
-        // Unsafe/unchecked conversions
+        // Unwrapping conversion functions
 
         // Will:
-        // - Return a `NonZeroU8` on reads, marking them as `unsafe` and calling
-        //   `<NonZeroU8 as UnsafeFrom<u8>>::unsafe_from`
+        // - Return a `NonZeroU8` on reads, calling `<NonZeroU8 as TryFrom<u8>>::try_from` and
+        //   unwrapping the result
         // - Take a `u8` for writes
-        pub unsafe_read_as_non_zero_u8: u8 [unsafe_get NonZeroU8] @ 0..=3,
+        pub unwrap_read_as_non_zero_u8_fn: u8 [unwrap_get_fn NonZeroU8::try_from -> NonZeroU8] @ 0..=3,
 
         // Will:
         // - Return a `u8` on reads
-        // - Take a `U16` for writes, marking them as `unsafe` and calling
-        //   `<U16 as UnsafeInto<u8>>::unsafe_into`
-        pub unsafe_write_as_u16: u8 [unsafe_set U16] @ 4..=7,
-
-        // Will:
-        // - Return a `SpuriouslyFailingU8` on reads, marking them as `unsafe` and calling
-        //   `<SpuriouslyFailingU8 as UnsafeFrom<u8>>::unsafe_from`
-        // - Take a `SpuriouslyFailingU8` for writes, marking them as `unsafe` and calling
-        //   `<SpuriouslyFailingU8 as UnsafeInto<u8>>::unsafe_into`
-        pub unsafe_as_spuriously_failing: u8 [unsafe_both SpuriouslyFailingU8] @ 8..=11,
-        // Equivalent to:
-        // pub unsafe_as_spuriously_failing: u8
-        //  [unsafe_get SpuriouslyFailingU8, unsafe_set SpuriouslyFailingU8] @ 8..=11,
-
-        // Will:
-        // - Return a `NonZeroU8` on reads, marking them as `unsafe` and calling
-        //   `<NonZeroU8 as UnsafeFrom<u8>>::unsafe_from`
-        // - Take a `NonZeroU8` for writes, calling `<NonZeroU8 as Into<u8>>::into`
-        pub unsafe_as_non_zero_u8: u8 [unsafe NonZeroU8] @ 12..=15,
-        // Equivalent to:
-        // pub unsafe_as_non_zero_u8: u8 [unsafe_get NonZeroU8, set NonZeroU8] @ 12..=15,
+        // - Take a `U16` for writes, returning `()`, calling `<U16 as TryInto<u8>>::try_into` and
+        //   unwrapping the result
+        pub unwrap_write_as_u16_fn: u8 [unwrap_set_fn U16::try_into(U16)] @ 4..=7,
     }
 }
 ```

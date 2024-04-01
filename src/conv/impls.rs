@@ -1,4 +1,22 @@
-use super::{UnsafeFrom, UnsafeInto};
+use super::{Try, UnsafeFrom, UnsafeInto};
+
+impl<T> Try for Option<T> {
+    type Output = T;
+    type WithOutput<U> = Option<U>;
+
+    fn from_output(output: Self::Output) -> Self {
+        Some(output)
+    }
+}
+
+impl<T, E> Try for Result<T, E> {
+    type Output = T;
+    type WithOutput<U> = Result<U, E>;
+
+    fn from_output(output: Self::Output) -> Self {
+        Ok(output)
+    }
+}
 
 impl<T, U> UnsafeFrom<U> for T
 where

@@ -1,5 +1,9 @@
 use quote::format_ident;
-use syn::Ident;
+use syn::{
+    parenthesized,
+    parse::{ParseBuffer, ParseStream},
+    Ident, Result,
+};
 
 pub fn for_all_int_types(mut f: impl FnMut(u8, bool, Ident)) {
     #[allow(clippy::unnecessary_lazy_evaluations)]
@@ -9,4 +13,10 @@ pub fn for_all_int_types(mut f: impl FnMut(u8, bool, Ident)) {
             f(bits, signed, ty_ident)
         }
     }
+}
+
+pub fn parse_parens(input: ParseStream<'_>) -> Result<ParseBuffer<'_>> {
+    let content;
+    parenthesized!(content in input);
+    Ok(content)
 }

@@ -3,7 +3,7 @@
 
 ```rust
 # use proc_bitfield::ConvRaw;
-/// An enum showcasing the `ConvRaw` derive for integers.
+/// An enum showcasing the `ConvRaw` derive for converting from/into integers.
 #[derive(ConvRaw)]
 pub enum ConvRawIntExample {
     A,
@@ -23,7 +23,9 @@ This will implement:
 - `From<bool> for ConvRawBoolExample`
 - `From<ConvRawBoolExample> for bool`
 
-/// An enum showcasing the `ConvRaw` derive when allowing for boolean values.
+```rust
+# use proc_bitfield::ConvRaw;
+/// An enum showcasing the `ConvRaw` derive for converting from/into booleans.
 #[derive(ConvRaw)]
 pub enum ConvRawBoolExample {
     False, // Implicitly, this value is treated as 0 (false).
