@@ -5,7 +5,7 @@ mod impls;
 /// Equivalent of [`core::ops::Try`] that doesn't require nightly and allows changing the output
 /// type using a GAT (logically depends on [`core::ops::Try`], but doesn't have an explicit
 /// dependency as it's unstable).
-/// 
+///
 /// Automatically implemented for Option<T> and Result<T, E>.
 pub trait Try {
     type Output;
