@@ -181,9 +181,9 @@ bitfield! {
     }
 }
 
-/// An enum showcasing the `ConvRaw` derive.
+/// An enum showcasing the `ConvRaw` derive for converting from/into integers.
 #[derive(ConvRaw)]
-pub enum ConvRawExample {
+pub enum ConvRawIntExample {
     A,
     B = 2,
     C,
@@ -191,6 +191,13 @@ pub enum ConvRawExample {
     E = 1,
     F = -128,
     G = 128,
+}
+
+/// An enum showcasing the `ConvRaw` derive for converting from/into booleans.
+#[derive(ConvRaw)]
+pub enum ConvRawBoolExample {
+    False, // Implicitly, this value is treated as 0 (false).
+    True,
 }
 
 #[cfg(feature = "nightly")]

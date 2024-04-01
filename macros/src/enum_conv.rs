@@ -8,7 +8,7 @@ use syn::{
 
 fn parse_discrs<'a>(
     variants: impl Iterator<Item = &'a Variant> + 'a,
-) -> impl Iterator<Item = (Expr, isize)> + 'a {
+) -> impl Iterator<Item = (&'a Variant, Expr, isize)> {
     let mut next_discr_int = 0_isize;
     variants.map(move |variant| {
         if let Some((_, discr)) = &variant.discriminant {
@@ -43,7 +43,7 @@ fn parse_discrs<'a>(
                 _ => None,
             } {
                 next_discr_int = discr_int + 1;
-                (discr.clone(), discr_int)
+                (variant, discr.clone(), discr_int)
             } else {
                 unimplemented!("Non-literal discriminants are unsupported");
             }
@@ -51,6 +51,7 @@ fn parse_discrs<'a>(
             let discr_int = next_discr_int;
             next_discr_int += 1;
             (
+                variant,
                 Expr::Lit(ExprLit {
                     lit: Lit::Int(LitInt::new(
                         &format!("{}", discr_int),
@@ -96,7 +97,7 @@ pub fn derive_conv_raw(item: TokenStream) -> TokenStream {
 
             let discr_data = parse_discrs(data.variants.iter()).collect::<Vec<_>>();
             let (min_discr, max_discr) =
-                discr_data.iter().fold((0, 0), |(min, max), (_, discr)| {
+                discr_data.iter().fold((0, 0), |(min, max), (_, _, discr)| {
                     (min.min(*discr), max.max(*discr))
                 });
 
@@ -106,8 +107,7 @@ pub fn derive_conv_raw(item: TokenStream) -> TokenStream {
             for_all_int_types(|discr_bits, signed, discr_ty| {
                 let from_raw_variants = discr_data
                     .iter()
-                    .zip(&data.variants)
-                    .filter(|((_, discr), _)| {
+                    .filter(|(_, _, discr)| {
                         if signed {
                             let (min, max) = signed_bounds(discr_bits);
                             *discr as i128 >= min && *discr as i128 <= max
@@ -115,7 +115,7 @@ pub fn derive_conv_raw(item: TokenStream) -> TokenStream {
                             *discr >= 0 && *discr as u128 <= unsigned_bound(discr_bits)
                         }
                     })
-                    .map(|((discr_lit, _), variant)| {
+                    .map(|(variant, discr_lit, _)| {
                         let variant_name = &variant.ident;
                         quote! {
                             #discr_lit => #type_name::#variant_name,
@@ -165,16 +165,12 @@ pub fn derive_conv_raw(item: TokenStream) -> TokenStream {
                     return;
                 }
 
-                let into_raw_variants =
-                    discr_data
-                        .iter()
-                        .zip(&data.variants)
-                        .map(|((discr_lit, _), variant)| {
-                            let variant_name = &variant.ident;
-                            quote! {
-                                #type_name::#variant_name => #discr_lit,
-                            }
-                        });
+                let into_raw_variants = discr_data.iter().map(|(variant, discr_lit, _)| {
+                    let variant_name = &variant.ident;
+                    quote! {
+                        #type_name::#variant_name => #discr_lit,
+                    }
+                });
                 let into_raw_impl = quote! {
                     #[allow(unused_variables)]
                     impl #impl_generics ::core::convert::From<#type_name #ty_generics> for #discr_ty
@@ -192,53 +188,38 @@ pub fn derive_conv_raw(item: TokenStream) -> TokenStream {
             });
 
             // Implement From<bool> and Into<bool>
-            if let s @ [_, _] = discr_data.as_slice() {
-                let mut vec = s
-                    .iter()
-                    .zip(&data.variants)
-                    .filter_map(|((_, d), v)| {
-                        let ident = &v.ident;
-                        let ident = quote! (#type_name::#ident);
-                        match d {
-                            0 => Some((false, ident)),
-                            1 => Some((true, ident)),
-                            _ => None,
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                vec.sort_by(|(l, _), (r, _)| (*l as u8).cmp(&(*r as u8)));
-                if let &[(false, ref fi), (true, ref ti)] = vec.as_slice() {
-                    let impl_from_bool = quote! {
-                        impl #impl_generics ::core::convert::From<bool>
-                            for #type_name #ty_generics
-                            #where_clause
-                        {
-                            fn from(other: bool) -> #type_name #ty_generics {
-                                match other {
-                                    false => #fi,
-                                    true => #ti,
-                                }
+            if let [(v_false, _, 0), (v_true, _, 1)] | [(v_true, _, 1), (v_false, _, 0)] =
+                discr_data.as_slice()
+            {
+                let impl_from_bool = quote! {
+                    impl #impl_generics ::core::convert::From<bool> for #type_name #ty_generics
+                        #where_clause
+                    {
+                        fn from(other: bool) -> #type_name #ty_generics {
+                            match other {
+                                false => #type_name::#v_false,
+                                true => #type_name::#v_true,
                             }
                         }
-                    };
+                    }
+                };
 
-                    let impl_into_bool = quote! {
-                        #[allow(unused_variables)]
-                        impl #impl_generics ::core::convert::From<#type_name #ty_generics> for bool
-                            #where_clause
-                        {
-                            fn from(other: #type_name #ty_generics) -> bool {
-                                match other {
-                                    #fi => false,
-                                     ti => true,
-                                }
+                let impl_into_bool = quote! {
+                    #[allow(unused_variables)]
+                    impl #impl_generics ::core::convert::From<#type_name #ty_generics> for bool
+                        #where_clause
+                    {
+                        fn from(other: #type_name #ty_generics) -> bool {
+                            match other {
+                                #type_name::#v_false => false,
+                                #type_name::#v_true => true,
                             }
                         }
-                    };
+                    }
+                };
 
-                    impls.push(impl_into_bool);
-                    impls.push(impl_from_bool);
-                }
+                impls.push(impl_into_bool);
+                impls.push(impl_from_bool);
             }
 
             quote! { #(#impls)* }.into()

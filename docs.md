@@ -110,6 +110,8 @@ The crate provides other supporting derive macros associated with bitfield funct
 
 It will implement `TryFrom<T> for Enum` for all builtin integer types `T`, and `From<Enum> for T` for all types that can fit all the enum discriminants.
 
+If the enum only contains two variants with discriminants 0 and 1 (in any order), it will also implement `From<bool> for Enum` and `From<Enum> for bool`.
+
 ## `UnwrapBits`
 
 `UnwrapBits` is a derive macro to implement `Bits<T> for U`, `WithBits<T> for U` and `SetBits<T> for U` for a type `T` and all builtin integer types `U` used as bitfield storage types.
