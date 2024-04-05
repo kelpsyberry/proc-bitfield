@@ -70,13 +70,13 @@ These can be:
     - `get_fn` [*ConvFn*] (`->` [*Type*])<sup>?</sup>, specifying the function that will convert the raw value into the given type (same as the raw type if not specified) on reads
     - `set_fn` [*ConvFn*] (`(` [*Type*] `)`)<sup>?</sup>, specifying the function that will convert a value of the given type (same as the raw type if not specified) into the raw value on writes
 - Unsafe conversions, using the `UnsafeFrom<T>` and `UnsafeInto<T>` traits, the relevant options being:
-    - `unsafe_get` [*Type*], specifying the type that the raw value will be unsafely converted into on reads, using `UnsafeFrom<T>`; the getter will become unsafe
-    - `unsafe_set` [*Type*], specifying the type that will be unsafely converted into the raw value on writes, using `UnsafeInto<T>`; the setter will become unsafe
-    - `unsafe_both` [*Type*], as shorthand for `unsafe_get` [*Type*] and `unsafe_set` [*Type*]
-    - `unsafe` [*Type*], as shorthand for `unsafe_get` [*Type*] and `set` [*Type*]
+    - `unsafe_get` (`!`)<sup>?</sup> [*Type*], specifying the type that the raw value will be unsafely converted into on reads, using `UnsafeFrom<T>`; the getter will become unsafe unless `!` is specified
+    - `unsafe_set` (`!`)<sup>?</sup> [*Type*], specifying the type that will be unsafely converted into the raw value on writes, using `UnsafeInto<T>`; the setter will become unsafe unless `!` is specified
+    - `unsafe_both` (`!`)<sup>?</sup> [*Type*], as shorthand for `unsafe_get` (`!`)<sup>?</sup> [*Type*] and `unsafe_set` (`!`)<sup>?</sup> [*Type*]
+    - `unsafe` (`!`)<sup>?</sup> [*Type*], as shorthand for `unsafe_get` (`!`)<sup>?</sup> [*Type*] and `set` [*Type*]
 - Unsafe conversion functions. the relevant options being:
-    - `unsafe_get_fn` [*ConvFn*] (`->` [*Type*])<sup>?</sup>, specifying the function that will unsafely convert the raw value into the given type (same as the raw type if not specified) on reads; the getter will become unsafe
-    - `unsafe_set_fn` [*ConvFn*] (`(` [*Type*] `)`)<sup>?</sup>, specifying the function that will unsafely convert a value of the given type (same as the raw type if not specified) into the raw value on writes; the setter will become unsafe
+    - `unsafe_get_fn` (`!`)<sup>?</sup> [*ConvFn*] (`->` [*Type*])<sup>?</sup>, specifying the function that will unsafely convert the raw value into the given type (same as the raw type if not specified) on reads; the getter will become unsafe unless `!` is specified
+    - `unsafe_set_fn` (`!`)<sup>?</sup> [*ConvFn*] (`(` [*Type*] `)`)<sup>?</sup>, specifying the function that will unsafely convert a value of the given type (same as the raw type if not specified) into the raw value on writes; the setter will become unsafe unless `!` is specified
 - Fallible conversions, using the `TryFrom<T>` and `TryInto<T>` traits, the relevant options being:
     - `try_get` [*Type*], specifying the type that the raw value will be fallibly converted into on reads, using `TryFrom<T>`
     - `try_set` [*Type*], specifying the type that will be fallibly converted into the raw value on writes, using `TryInto<T>`

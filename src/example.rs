@@ -144,6 +144,55 @@ bitfield! {
         pub unsafe_write_as_u16_fn: u8 [unsafe_set_fn U16::unsafe_into(U16)] @ 4..=7,
 
 
+        // Unsafe/unchecked conversions with safe accessors
+
+        // Will:
+        // - Return a `NonZeroU8` on reads, unsafely calling
+        //   `<NonZeroU8 as UnsafeFrom<u8>>::unsafe_from`
+        // - Take a `u8` for writes
+        pub unsafe_read_as_non_zero_u8_safe_acc: u8 [unsafe_get! NonZeroU8] @ 0..=3,
+
+        // Will:
+        // - Return a `u8` on reads
+        // - Take a `U16` for writes, unsafely calling
+        //   `<U16 as UnsafeInto<u8>>::unsafe_into`
+        pub unsafe_write_as_u16_safe_acc: u8 [unsafe_set! U16] @ 4..=7,
+
+        // Will:
+        // - Return a `SpuriouslyFailingU8` on reads, unsafely calling
+        //   `<SpuriouslyFailingU8 as UnsafeFrom<u8>>::unsafe_from`
+        // - Take a `SpuriouslyFailingU8` for writes, unsafely calling
+        //   `<SpuriouslyFailingU8 as UnsafeInto<u8>>::unsafe_into`
+        pub unsafe_as_spuriously_failing_safe_acc: u8 [unsafe_both! SpuriouslyFailingU8] @ 8..=11,
+        // Equivalent to:
+        // pub unsafe_as_spuriously_failing_safe_acc: u8
+        //  [unsafe_get! SpuriouslyFailingU8, unsafe_set! SpuriouslyFailingU8] @ 8..=11,
+
+        // Will:
+        // - Return a `NonZeroU8` on reads, unsafely calling
+        //   `<NonZeroU8 as UnsafeFrom<u8>>::unsafe_from`
+        // - Take a `NonZeroU8` for writes, calling `<NonZeroU8 as Into<u8>>::into`
+        pub unsafe_as_non_zero_u8_safe_acc: u8 [unsafe! NonZeroU8] @ 12..=15,
+        // Equivalent to:
+        // pub unsafe_as_non_zero_u8_safe_acc: u8 [unsafe_get! NonZeroU8, set NonZeroU8] @ 12..=15,
+
+
+        // Unsafe/unchecked conversion functions with safe accessors
+
+        // Will:
+        // - Return a `NonZeroU8` on reads, unsafely calling
+        //   `<NonZeroU8 as UnsafeFrom<u8>>::unsafe_from`
+        // - Take a `u8` for writes
+        pub unsafe_read_as_non_zero_u8_fn_safe_acc: u8 [
+            unsafe_get_fn! NonZeroU8::unsafe_from -> NonZeroU8
+        ] @ 0..=3,
+
+        // Will:
+        // - Return a `u8` on reads
+        // - Take a `U16` for writes, unsafely calling `<U16 as UnsafeInto<u8>>::unsafe_into`
+        pub unsafe_write_as_u16_fn_safe_acc: u8 [unsafe_set_fn! U16::unsafe_into(U16)] @ 4..=7,
+
+
         // Fallible conversions
 
         // Will:
