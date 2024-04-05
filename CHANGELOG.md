@@ -1,4 +1,7 @@
 ## Unreleased
+- **BREAKING**: Changed the default behavior of unsafe conversions to mark the accessor as unsafe; the old behavior (safe accessor that performs an unsafe conversion) can be obtained by adding a `!` suffix to the attribute name, i.e. `unsafe_get! T`
+- Added field conversions through functions with `get_fn`, `set_fn`, `unsafe_get_fn`, `unsafe_set_fn`, `try_get_fn`, `try_set_fn`, `unwrap_get_fn` and `unwrap_set_fn`
+- Made the `ConvRaw` derive implement `bool` conversions for enums with only two variants with discriminants 0 and 1 (in any order)
 - Changes to the `BitRange<T>` and `Bit` traits:
     - Renamed and split the `BitRange<T>` trait, into `Bits<T>`, `WithBits<T>` and `SetBits<T>`
     - Split the `Bit` trait into `Bit`, `WithBit` and `SetBit`
