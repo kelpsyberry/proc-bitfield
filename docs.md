@@ -14,26 +14,26 @@ After the struct's name and its storage type declaration, a list of automatic tr
 ```rust
 # use proc_bitfield::bitfield;
 bitfield! {
-    pub struct Example(pub u8): Debug, FromRaw, IntoRaw, DerefRaw { /* ... */ }
+    pub struct Example(pub u8): Debug, FromStorage, IntoStorage, DerefStorage { /* ... */ }
 }
 ```
-Currently, the allowed automatic implementations are `Debug`, `FromRaw`, `IntoRaw` and `DerefRaw`.
+Currently, the allowed automatic implementations are `Debug`, `FromStorage`, `IntoStorage` and `DerefStorage`.
 
 ### `Debug`
 
 If specified, `core::fmt::Debug` will be implemented automatically for the current bitfield struct; the generated `fmt` function will output the type's raw value as well as all of its *readable* fields' values.
 
-### `FromRaw`
+### `FromStorage`
 
 If specified, `core::convert::From<$storage_ty>` will be implemented automatically for the current bitfield struct; the generated `from` function will construct an instance of the bitfield struct from the provided value directly, with no additional checks, analogously to `$bitfield_ty(raw)` in a context where the bitfield struct's raw value field is accessible. *This does not check or change the previously declared visibility of the bitfield struct's raw value field (`bitfield.0`), or any other such manually-declared fields, so care must be taken to maintain consistency.*
 
-### `IntoRaw`
+### `IntoStorage`
 
-If specified, `core::convert::From<$bitfield_ty>` will be implemented automatically for the current bitfield struct's storage type (and consequently, `core::convert::Into<$storage_ty>` for the bitfield type); the generated `from` function will read the bitfield's raw value, with no additional changes, analogously to `bitfield.0` in a context where the bitfield struct's raw value field is accessible. *Analogously to `FromRaw`, care must be taken to maintain consistency with the visibility of the bitfield struct's raw value outside this implementation.*
+If specified, `core::convert::From<$bitfield_ty>` will be implemented automatically for the current bitfield struct's storage type (and consequently, `core::convert::Into<$storage_ty>` for the bitfield type); the generated `from` function will read the bitfield's raw value, with no additional changes, analogously to `bitfield.0` in a context where the bitfield struct's raw value field is accessible. *Analogously to `FromStorage`, care must be taken to maintain consistency with the visibility of the bitfield struct's raw value outside this implementation.*
 
-### `DerefRaw`
+### `DerefStorage`
 
-If specified, `core::ops::Deref` will be implemented automatically for the current bitfield struct; the generated `deref` function will read the bitfield's raw value directly, analogously to `&bitfield.0` in a context where the bitfield struct's raw value field is accessible. *Analogously to `FromRaw`, care must be taken to maintain consistency with the visibility of the bitfield struct's raw value outside this implementation.*
+If specified, `core::ops::Deref` will be implemented automatically for the current bitfield struct; the generated `deref` function will read the bitfield's raw value directly, analogously to `&bitfield.0` in a context where the bitfield struct's raw value field is accessible. *Analogously to `FromStorage`, care must be taken to maintain consistency with the visibility of the bitfield struct's raw value outside this implementation.*
 
 ## Field declarations
 

@@ -50,9 +50,9 @@ mod kw {
     syn::custom_keyword!(wo);
 
     syn::custom_keyword!(Debug);
-    syn::custom_keyword!(FromRaw);
-    syn::custom_keyword!(IntoRaw);
-    syn::custom_keyword!(DerefRaw);
+    syn::custom_keyword!(FromStorage);
+    syn::custom_keyword!(IntoStorage);
+    syn::custom_keyword!(DerefStorage);
 }
 
 fn parse_accessor_fn(input: ParseStream) -> Result<Expr> {
@@ -153,9 +153,9 @@ impl Field {
 
 struct AutoImpls {
     debug: bool,
-    from_raw: bool,
-    into_raw: bool,
-    deref_raw: bool,
+    from_storage: bool,
+    into_storage: bool,
+    deref_storage: bool,
 }
 
 struct Struct {
@@ -185,9 +185,9 @@ impl Parse for Struct {
 
         let mut auto_impls = AutoImpls {
             debug: false,
-            from_raw: false,
-            into_raw: false,
-            deref_raw: false,
+            from_storage: false,
+            into_storage: false,
+            deref_storage: false,
         };
         if input.parse::<Token![:]>().is_ok() {
             loop {
@@ -196,12 +196,12 @@ impl Parse for Struct {
                 }
                 if input.parse::<kw::Debug>().is_ok() {
                     auto_impls.debug = true;
-                } else if input.parse::<kw::FromRaw>().is_ok() {
-                    auto_impls.from_raw = true;
-                } else if input.parse::<kw::IntoRaw>().is_ok() {
-                    auto_impls.into_raw = true;
-                } else if input.parse::<kw::DerefRaw>().is_ok() {
-                    auto_impls.deref_raw = true;
+                } else if input.parse::<kw::FromStorage>().is_ok() {
+                    auto_impls.from_storage = true;
+                } else if input.parse::<kw::IntoStorage>().is_ok() {
+                    auto_impls.into_storage = true;
+                } else if input.parse::<kw::DerefStorage>().is_ok() {
+                    auto_impls.deref_storage = true;
                 } else {
                     break;
                 }
@@ -1113,7 +1113,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         });
     }
 
-    if auto_impls.from_raw {
+    if auto_impls.from_storage {
         impls.push(quote! {
             impl #impl_generics ::core::convert::From<#storage_ty> for #ident<#ty_generics>
                 #where_clause
@@ -1125,7 +1125,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         });
     }
 
-    if auto_impls.into_raw {
+    if auto_impls.into_storage {
         impls.push(quote! {
             impl #impl_generics ::core::convert::From<#ident<#ty_generics>> for #storage_ty
                 #where_clause
@@ -1137,7 +1137,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         });
     }
 
-    if auto_impls.deref_raw {
+    if auto_impls.deref_storage {
         impls.push(quote! {
             impl #impl_generics ::core::ops::Deref for #ident<#ty_generics> #where_clause {
                 type Target = #storage_ty;

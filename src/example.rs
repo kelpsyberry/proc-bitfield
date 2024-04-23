@@ -6,7 +6,7 @@ use support::*;
 bitfield! {
     /// A bitfield showcasing how to specify bit ranges.
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct BitRanges(pub u16): Debug, FromRaw, IntoRaw, DerefRaw {
+    pub struct BitRanges(pub u16): Debug, FromStorage, IntoStorage, DerefStorage {
         // A single field spanning the entire bitfield, using an unbounded range:
         pub whole_bitfield: u16 @ ..,                 // Bits 0 to 15
 
@@ -38,7 +38,7 @@ bitfield! {
 
 bitfield! {
     /// A bitfield showcasing how to specify access restrictions.
-    pub struct AccessRestrictions(pub u8): Debug, FromRaw, IntoRaw, DerefRaw {
+    pub struct AccessRestrictions(pub u8): Debug, FromStorage, IntoStorage, DerefStorage {
         // By specifying `read_only` (or `ro`), only `Example::read_only_flag` will be generated (no
         // setters):
         pub read_only_flag: bool [read_only] @ 0,
@@ -60,7 +60,7 @@ bitfield! {
 
 bitfield! {
     /// A bitfield showcasing various kinds of field type conversions.
-    pub struct FieldTypeConversions(pub u16): Debug, FromRaw, IntoRaw, DerefRaw {
+    pub struct FieldTypeConversions(pub u16): Debug, FromStorage, IntoStorage, DerefStorage {
         // Infallible conversions
 
         // Will:
