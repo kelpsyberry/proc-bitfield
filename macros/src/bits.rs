@@ -5,41 +5,106 @@ use syn::{
     Error, Expr, Lit, Token, Type,
 };
 
+mod kw {
+    syn::custom_keyword!(above);
+    syn::custom_keyword!(below);
+}
+
 #[derive(Clone)]
 pub enum Bits {
     Single(Lit),
-    Range { start: Lit, end: Lit },
-    RangeInclusive { start: Lit, end: Lit },
-    OffsetAndLength { start: Lit, length: Lit },
+    Range {
+        start: Lit,
+        end: Lit,
+    },
+    RangeInclusive {
+        start: Lit,
+        end: Lit,
+    },
+    OffsetAndLength {
+        start: Lit,
+        length: Lit,
+    },
+    Pack {
+        above_below_span: proc_macro2::Span,
+        above: bool,
+        length: Lit,
+    },
     RangeFull,
 }
 
 impl Bits {
-    pub fn into_span(self) -> BitsSpan {
-        match self {
+    pub fn into_span(self, last: Option<&BitsSpan>) -> Result<BitsSpan> {
+        Ok(match self {
             Bits::Single(bit) => BitsSpan::Single(bit),
             Bits::Range { start, end } => BitsSpan::Range {
-                start,
+                start: quote! { #start },
                 end: quote! { #end },
             },
             Bits::RangeInclusive { start, end } => BitsSpan::Range {
-                start,
+                start: quote! { #start },
                 end: quote! { {#end + 1} },
             },
             Bits::OffsetAndLength { start, length } => {
                 let end = quote! { {#start + #length} };
-                BitsSpan::Range { start, end }
+                BitsSpan::Range {
+                    start: quote! { #start },
+                    end,
+                }
+            }
+            Bits::Pack {
+                above_below_span,
+                above,
+                length,
+            } => {
+                let Some(BitsSpan::Range {
+                    start: last_start,
+                    end: last_end,
+                }) = last
+                else {
+                    return Err(Error::new(
+                        above_below_span,
+                        "cannot use field packing in this position",
+                    ));
+                };
+                if above {
+                    let start = last_end.clone();
+                    BitsSpan::Range {
+                        end: quote! { {(#start) + #length} },
+                        start,
+                    }
+                } else {
+                    let end = last_start.clone();
+                    BitsSpan::Range {
+                        start: quote! { {(#end) - #length} },
+                        end,
+                    }
+                }
             }
             Bits::RangeFull => BitsSpan::Full,
-        }
+        })
     }
 }
 
 impl Parse for Bits {
     fn parse(input: ParseStream) -> Result<Self> {
-        Ok(if input.parse::<Token![..]>().is_ok() {
+        let lookahead = input.lookahead1();
+        Ok(if lookahead.peek(Token![..]) {
+            input.parse::<Token![..]>()?;
             Bits::RangeFull
-        } else {
+        } else if input.peek(kw::above) || input.peek(kw::below) {
+            let (above_below_span, above) = input
+                .parse::<kw::above>()
+                .map(|a| (a.span, true))
+                .or_else(|_| input.parse::<kw::below>().map(|b| (b.span, false)))?;
+            input.parse::<Token![;]>()?;
+            let length = input.parse()?;
+            Bits::Pack {
+                above_below_span,
+                above,
+                length,
+            }
+        } else if input.peek(Lit) {
             let start = input.parse()?;
             let lookahead = input.lookahead1();
             if lookahead.peek(Token![..=]) {
@@ -57,14 +122,17 @@ impl Parse for Bits {
             } else {
                 Bits::Single(start)
             }
+        } else {
+            return Err(lookahead.error());
         })
     }
 }
 
+#[derive(Clone)]
 pub enum BitsSpan {
     Single(Lit),
     Range {
-        start: Lit,
+        start: proc_macro2::TokenStream,
         end: proc_macro2::TokenStream,
     },
     Full,
@@ -171,7 +239,10 @@ pub fn bits(input: TokenStream) -> TokenStream {
 
     let storage_ty_bits = ty_bits(&storage_ty, quote! { storage_value });
     let field_ty_bits = ty_bits(&field_ty, quote! { &result });
-    let bits_span = bits.into_span();
+    let bits_span = match bits.into_span(None) {
+        Ok(bits_span) => bits_span,
+        Err(err) => return err.to_compile_error().into(),
+    };
     let asserts = asserts(
         &bits_span,
         storage_ty.is_some(),
@@ -284,7 +355,10 @@ pub fn with_bits(input: TokenStream) -> TokenStream {
 
     let storage_ty_bits = ty_bits(&storage_ty, quote! { &storage_value });
     let field_ty_bits = ty_bits(&field_ty, quote! { &field_value });
-    let bits_span = bits.into_span();
+    let bits_span = match bits.into_span(None) {
+        Ok(bits_span) => bits_span,
+        Err(err) => return err.to_compile_error().into(),
+    };
     let asserts = asserts(
         &bits_span,
         storage_ty.is_some(),
@@ -359,7 +433,10 @@ pub fn set_bits(input: TokenStream) -> TokenStream {
 
     let storage_ty_bits = ty_bits(&storage_ty, quote! { storage_value });
     let field_ty_bits = ty_bits(&field_ty, quote! { &field_value });
-    let bits_span = bits.into_span();
+    let bits_span = match bits.into_span(None) {
+        Ok(bits_span) => bits_span,
+        Err(err) => return err.to_compile_error().into(),
+    };
     let asserts = asserts(
         &bits_span,
         storage_ty.is_some(),

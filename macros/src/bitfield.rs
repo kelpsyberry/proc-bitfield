@@ -9,8 +9,7 @@ use syn::{
     parse::{Parse, ParseStream, Result},
     punctuated::Punctuated,
     spanned::Spanned,
-    token, Attribute, Error, Expr, ExprParen, ExprPath, Generics, Ident, Lit, LitInt, Token, Type,
-    Visibility,
+    token, Attribute, Error, Expr, ExprParen, ExprPath, Generics, Ident, Token, Type, Visibility,
 };
 
 mod kw {
@@ -589,7 +588,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         generics,
         fields,
     } = syn::parse_macro_input!(input);
-    
+
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let has_type_params = generics.type_params().next().is_some();
 
@@ -599,6 +598,8 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
     } else {
         quote! {}
     };
+
+    let mut last_bits_span = None;
 
     let field_fns = fields.iter().map(
         |Field {
@@ -611,7 +612,13 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
          }| {
             let storage_ty_bits = quote! { {::core::mem::size_of::<#storage_ty>() << 3} };
             let field_ty_bits = quote! { {::core::mem::size_of::<#field_ty>() << 3} };
-            let bits_span = bits.clone().into_span();
+
+            let bits_span = match bits.clone().into_span(last_bits_span.as_ref()) {
+                Ok(bits_span) => bits_span,
+                Err(err) => return err.to_compile_error(),
+            };
+            last_bits_span = Some(bits_span.clone());
+
             let bits_span_asserts = match &bits_span {
                 BitsSpan::Single(bit) => {
                     quote_spanned! {
@@ -991,7 +998,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             (start, end)
                         }
                         BitsSpan::Full => {
-                            (Lit::Int(LitInt::new("0", ident.span())), &storage_ty_bits)
+                            (quote! { 0 }, &storage_ty_bits)
                         }
                     };
 
