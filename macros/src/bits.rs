@@ -1,3 +1,4 @@
+use crate::utils::maybe_const_assert;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
@@ -136,14 +137,6 @@ pub enum BitsSpan {
         end: proc_macro2::TokenStream,
     },
     Full,
-}
-
-fn maybe_const_assert(is_const: bool) -> proc_macro2::TokenStream {
-    if is_const {
-        quote! { ::proc_bitfield::__private::static_assertions::const_assert! }
-    } else {
-        quote! { ::core::assert! }
-    }
 }
 
 fn maybe_ty_from_cast_expr(expr: &Expr) -> Option<Type> {

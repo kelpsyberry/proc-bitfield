@@ -1,9 +1,10 @@
-use super::{
+use crate::{
     bits::{Bits, BitsSpan},
-    utils::parse_parens,
+    utils::{maybe_const_assert, parse_parens},
 };
 use proc_macro::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
+use std::mem::replace;
 use syn::{
     braced, bracketed, parenthesized,
     parse::{Parse, ParseStream, Result},
@@ -164,6 +165,7 @@ struct Struct {
     storage_vis: Visibility,
     storage_ty: Type,
     auto_impls: AutoImpls,
+    has_generics: bool,
     generics: Generics,
     fields: Punctuated<Field, Token![,]>,
 }
@@ -174,6 +176,8 @@ impl Parse for Struct {
         let vis = input.parse()?;
         input.parse::<Token![struct]>()?;
         let ident = input.parse::<Ident>()?;
+
+        let has_generics = input.peek(Token![<]);
         let mut generics = input.parse::<Generics>()?;
 
         let (storage_vis, storage_ty) = {
@@ -570,8 +574,9 @@ impl Parse for Struct {
             ident,
             storage_vis,
             storage_ty,
-            generics,
             auto_impls,
+            has_generics,
+            generics,
             fields,
         })
     }
@@ -585,6 +590,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         storage_vis,
         storage_ty,
         auto_impls,
+        has_generics,
         generics,
         fields,
     } = syn::parse_macro_input!(input);
@@ -594,7 +600,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
 
     let type_params_phantom_data = if has_type_params {
         let type_params = generics.type_params();
-        quote! { , ::core::marker::PhantomData::<#(#type_params),*> }
+        quote! { , ::core::marker::PhantomData::<(#(#type_params),*)> }
     } else {
         quote! {}
     };
@@ -619,31 +625,34 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             };
             last_bits_span = Some(bits_span.clone());
 
-            let bits_span_asserts = match &bits_span {
-                BitsSpan::Single(bit) => {
-                    quote_spanned! {
-                        ident.span() =>
-                        ::proc_bitfield::__private::static_assertions::const_assert!(
-                            #bit < #storage_ty_bits
-                        );
+            let mut bits_span_asserts = {
+                let assert_is_const = !has_generics;
+                let assert = maybe_const_assert(assert_is_const);
+                let mut asserts = match &bits_span {
+                    BitsSpan::Single(bit) => {
+                        quote_spanned! {
+                            ident.span() =>
+                            #assert(#bit < #storage_ty_bits);
+                        }
                     }
-                }
-                BitsSpan::Range { start, end } => {
-                    quote_spanned! {
-                        ident.span() =>
-                        ::proc_bitfield::__private::static_assertions::const_assert!(
-                            #end > #start
-                        );
-                        ::proc_bitfield::__private::static_assertions::const_assert!(
-                            #start < #storage_ty_bits && #end <= #storage_ty_bits
-                        );
-                        ::proc_bitfield::__private::static_assertions::const_assert!(
-                            #end - #start <= #field_ty_bits
-                        );
+                    BitsSpan::Range { start, end } => {
+                        quote_spanned! {
+                            ident.span() =>
+                            #assert(#end > #start);
+                            #assert(#start < #storage_ty_bits && #end <= #storage_ty_bits);
+                            #assert(#end - #start <= #field_ty_bits);
+                        }
                     }
-                }
-                BitsSpan::Full => {
-                    quote! {}
+                    BitsSpan::Full => {
+                        quote! {}
+                    }
+                };
+                move || {
+                    if assert_is_const {
+                        replace(&mut asserts, quote!{})
+                    } else {
+                        asserts.clone()
+                    }
                 }
             };
 
@@ -755,6 +764,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         let get_unsafe = get_kind.is_unsafe()
                             .then(|| quote! { unsafe })
                             .into_iter();
+                        let bits_span_asserts = bits_span_asserts();
                         quote! {
                             #(#attrs)*
                             #[inline]
@@ -951,7 +961,9 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
 
                         let set_with_unsafe = set_kind.is_unsafe().then(|| quote! { unsafe });
                         let set_with_unsafe_1 = set_with_unsafe.iter();
+                        let bits_span_asserts_1 = bits_span_asserts();
                         let set_with_unsafe_2 = set_with_unsafe_1.clone();
+                        let bits_span_asserts_2 = bits_span_asserts();
                         quote! {
                             #(#attrs)*
                             #[inline]
@@ -961,7 +973,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                 self,
                                 value: #set_with_input_ty,
                             ) -> #with_output_ty {
-                                #bits_span_asserts
+                                #bits_span_asserts_1
                                 let raw_result = #with_raw_value;
                                 #with_ok
                             }
@@ -973,6 +985,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                 &mut self,
                                 value: #set_with_input_ty,
                             ) -> #set_output_ty {
+                                #bits_span_asserts_2
                                 #set_raw_value;
                                 #set_ok
                             }
@@ -1003,6 +1016,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     };
 
                     let getter = if *is_readable {
+                        let bits_span_asserts = bits_span_asserts();
                         quote! {
                             #(#attrs)*
                             #[inline]
@@ -1019,6 +1033,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     };
 
                     let modifier = if *is_readable && *is_writable {
+                        let bits_span_asserts = bits_span_asserts();
                         quote! {
                             #(#attrs)*
                             #[inline]
@@ -1037,13 +1052,15 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     };
 
                     let setters = if *is_writable {
+                        let bits_span_asserts_1 = bits_span_asserts();
+                        let bits_span_asserts_2 = bits_span_asserts();
                         quote! {
                             #(#attrs)*
                             #[inline]
                             #[must_use]
                             #[allow(clippy::identity_op)]
                             #vis fn #with_fn_ident(self, value: #field_ty) -> Self {
-                                #bits_span_asserts
+                                #bits_span_asserts_1
                                 Self(
                                     <#storage_ty as ::proc_bitfield::WithBits<
                                         <#field_ty as ::proc_bitfield::Bitfield>::Storage>
@@ -1059,6 +1076,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             #[inline]
                             #[allow(clippy::identity_op)]
                             #vis fn #set_fn_ident(&mut self, value: #field_ty) {
+                                #bits_span_asserts_2
                                 <#storage_ty as ::proc_bitfield::SetBits<
                                     <#field_ty as ::proc_bitfield::Bitfield>::Storage>
                                 >::set_bits::<#start, #end>(

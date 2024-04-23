@@ -1,4 +1,5 @@
 use quote::format_ident;
+use quote::quote;
 use syn::{
     parenthesized,
     parse::{ParseBuffer, ParseStream},
@@ -19,4 +20,12 @@ pub fn parse_parens(input: ParseStream<'_>) -> Result<ParseBuffer<'_>> {
     let content;
     parenthesized!(content in input);
     Ok(content)
+}
+
+pub fn maybe_const_assert(is_const: bool) -> proc_macro2::TokenStream {
+    if is_const {
+        quote! { ::proc_bitfield::__private::static_assertions::const_assert! }
+    } else {
+        quote! { ::core::assert! }
+    }
 }
