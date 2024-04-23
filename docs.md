@@ -29,7 +29,7 @@ If specified, `core::convert::From<$storage_ty>` will be implemented automatical
 
 ### `IntoStorage`
 
-If specified, `core::convert::From<$bitfield_ty>` will be implemented automatically for the current bitfield struct's storage type (and consequently, `core::convert::Into<$storage_ty>` for the bitfield type); the generated `from` function will read the bitfield's raw value, with no additional changes, analogously to `bitfield.0` in a context where the bitfield struct's raw value field is accessible. *Analogously to `FromStorage`, care must be taken to maintain consistency with the visibility of the bitfield struct's raw value outside this implementation.*
+If specified, `core::convert::From<$bitfield_ty>` will be implemented automatically for the current bitfield struct's storage type (and consequently, `core::convert::Into<$storage_ty>` for the bitfield struct); the generated `from` function will read the bitfield's raw value, with no additional changes, analogously to `bitfield.0` in a context where the bitfield struct's raw value field is accessible. *Analogously to `FromStorage`, care must be taken to maintain consistency with the visibility of the bitfield struct's raw value outside this implementation.*
 
 ### `DerefStorage`
 
@@ -37,23 +37,46 @@ If specified, `core::ops::Deref` will be implemented automatically for the curre
 
 ## Field declarations
 
-Fields can be declared by using the form:
+### Single fields
+
+Single fields can be declared by using the form:
 > [*Visibility*] [IDENTIFIER] `:` [*Type*] (`[`(*Option* `,`)<sup>*</sup> *Option*`]`)<sup>?</sup> `@` *FieldRange*
 
-where *FieldRange* corresponds to any of (where *L* is an alias for [*LiteralExpression*]):
+They will have by-value getters (`bitfield.x()`) and setters (`bitfield.with_x(x)` and `bitfield.set_x(x)`) declared for them as applicable.
+
+### Nested bitfield fields
+
+Fields that contain nested bitfields can be declared by using the form:
+> [*Visibility*] [IDENTIFIER] `:` `nested` [*Type*] (`[`(*Option* `,`)<sup>*</sup> *Option*`]`)<sup>?</sup> `@` *FieldRange*
+
+They will have by-reference accessors (`bitfield.x()` and `bitfield.x_mut()`) and by-value setters (`bitfield.with_x(x)` and `bitfield.set_x(x)`) declared for them as applicable.
+
+Nested bitfield fields don't support field conversion attributes, only access restriction ones.
+
+### Field bit ranges
+
+*FieldRange* corresponds to any of (where *L* is an alias for [*LiteralExpression*]):
 - `..`, to use every bit
 - *L*`..=`*L*, to use the bits specified by an inclusive range
 - *L*`..`*L*, to use the bits specified by an exclusive range
-- *L*`;` *L*, to use bits specified by a (start, length) pair
-- *L*, to use a single bit; unlike all other specifications, this is only valid for `bool` fields, and will use the `Bit` traits instead of `Bits<T>`
+- *L*`;` *L*, to use the bits specified by a (start, length) pair
+- `above` `;` *L*, to place a field with the given length above the previous one
+- `below` `;` *L*, to place a field with the given length below the previous one
 
-*Option*s can be optionally specified in brackets, matching any of the ones defined below.
+Only for `bool` fields, separate *FieldRange* specifications are present that will use the `Bit` traits instead of `Bits<T>`
+- *L*, to use a single bit; unlike the other specifications
+- `above`, to place a single bit above the previous field
+- `below`, to place a single bit below the previous field
 
-### Access restrictions
+Specifying the `above` `;` *L*, `below` `;` *L*, `above` and `below` field ranges for the first field in the bitfield, or immediately after a `..` field, is an error.
+
+*Option*s can be specified in brackets, matching any of the ones defined below.
+
+### Access restrictions (single and nested fields)
 
 Fields are both readable and writable by default, but can be declared read-only or write-only using respectively the `read_only`/`ro` and `write_only`/`wo` options.
 
-### Field type conversions
+### Field type conversions (single fields only)
 
 Fields' "raw" types as specified after the colon are restricted by `Bits<T>`, `WithBits<T>` and `SetBits<T>` (or `Bit`, `WithBit` and `SetBit` for boolean fields) implementations on the bitfield's contained type; however, accessors can perform conversions specified through optional options.
 
@@ -93,6 +116,12 @@ These can be:
 - Unwrapping conversion functions. the relevant options being:
     - `unwrap_get_fn` [*ConvFn*] (`->` [*Type*])<sup>?</sup>, specifying the function that will convert the raw value into the given type (same as the raw type if not specified) on reads, after unwrapping its result
     - `unwrap_set_fn` [*ConvFn*] (`(` [*Type*] `)`)<sup>?</sup>, specifying the function that will convert a value of the given type (same as the raw type if not specified) into the raw value on writes, after unwrapping its result
+
+## Notes
+
+- The generated bitfield struct is guaranteed to be `#[repr(transparent)]` and thus have the same representation as its storage type
+- [*FieldRange*]s' correctness will usually be verified at compile time for conveniency; however, if generics are used it will be verified at run time due to language limitations.
+- The bitfield struct will usually be a single-field tuple struct; however, if any generic types are present, it will acquire a second field with the same visibility as the first of type `PhantomData<(T, U, ...)>` where T, U, ... are the generic types
 
 # The `bits!`, `with_bits!` and `set_bits!` macros
 
@@ -138,7 +167,7 @@ For each integer type `U`, an implementation will be generated iff `T: TryFrom<U
 
 This derive macro is currently gated behind the `nightly` feature, as it requires [`#![feature(trivial_bounds)]`](https://doc.rust-lang.org/beta/unstable-book/language-features/trivial-bounds.html) to be enabled in the crate using it.
 
-[*FieldRange*]: #field-declarations
+[*FieldRange*]: #fieldrange
 [*ConvFn*]: #field-type-conversions
 [*Visibility*]: https://doc.rust-lang.org/stable/reference/visibility-and-privacy.html
 [IDENTIFIER]: https://doc.rust-lang.org/stable/reference/identifiers.html

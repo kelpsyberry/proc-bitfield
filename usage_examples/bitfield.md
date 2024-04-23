@@ -8,9 +8,9 @@
 bitfield! {
     /// A bitfield showcasing how to specify bit ranges.
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct BitRanges(pub u16): Debug, FromStorage, IntoStorage, DerefStorage {
+    pub struct BitRanges(pub u32): Debug, FromStorage, IntoStorage, DerefStorage {
         // A single field spanning the entire bitfield, using an unbounded range:
-        pub whole_bitfield: u16 @ ..,                 // Bits 0 to 15
+        pub whole_bitfield: u32 @ ..,                 // Bits 0 to 31
 
         // Multi-bit field, specified using an inclusive range:
         pub inclusive_range: u8 @ 0..=3,              // Bits 0 to 3
@@ -35,6 +35,20 @@ bitfield! {
         // of `Bits<T>`, and is specific to `bool` (which is conversely not allowed using bit
         // ranges).
         pub flag: bool @ 15,                          // Bit 15
+
+        // Multi-bit field placed immediately above the previous one
+        pub pack_above: u8 @ above; 4,                // Bits 16 to 19
+
+        // Single-bit field placed immediately above the previous one
+        pub single_bit_pack_above: bool @ above,      // Bit 20
+
+        pub flag2: bool @ 28,                         // Bit 28
+
+        // Multi-bit field placed immediately below the previous one
+        pub pack_below: u8 @ below; 4,                // Bits 24 to 27
+
+        // Single-bit field placed immediately below the previous one
+        pub single_bit_pack_below: bool @ below,      // Bit 23
     }
 }
 ```
@@ -47,22 +61,53 @@ bitfield! {
 bitfield! {
     /// A bitfield showcasing how to specify access restrictions.
     pub struct AccessRestrictions(pub u8): Debug, FromStorage, IntoStorage, DerefStorage {
-        // By specifying `read_only` (or `ro`), only `Example::read_only_flag` will be generated (no
-        // setters):
+        // By specifying `read_only` (or `ro`), only `AccessRestrictions::read_only_flag` will be
+        // generated (no setters):
         pub read_only_flag: bool [read_only] @ 0,
         // Equivalent:
         // pub read_only_flag: bool [ro] @ 0,
 
-        // By specifying `write_only` (or `wo`), only `Example::set_write_only_flag` and
-        // `Example::with_write_only_flag` will be generated (no getters):
+        // By specifying `write_only` (or `wo`), only `AccessRestrictions::set_write_only_flag` and
+        // `AccessRestrictions::with_write_only_flag` will be generated (no getters):
         pub write_only_flag: bool [write_only] @ 1,
         // Equivalent:
         // pub read_only_flag: bool [wo] @ 0,
 
         // Both getters and setters will be generated without any explicit access restrictions:
-        // `Example::read_write_flag`, `Example::set_read_write_flag` and
-        // `Example::with_read_write_flag` will all be generated.
+        // `AccessRestrictions::read_write_flag`, `AccessRestrictions::set_read_write_flag` and
+        // `AccessRestrictions::with_read_write_flag` will all be generated.
         pub read_write_flag: bool @ 2,
+    }
+}
+```
+
+### Nested bitfields
+([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.NestedBitfields.html))
+
+```rust
+# use proc_bitfield::bitfield;
+bitfield! {
+    /// A bitfield showcasing how to use nested bitfields.
+    pub struct NestedBitfields(pub u16): Debug, FromStorage, IntoStorage, DerefStorage {
+        // By specifying `read_only` (or `ro`), only `NestedBitfields::read_only_nested` will be
+        // generated (no setters and no mutable reference access):
+        pub read_only_nested: nested AccessRestrictions [read_only] @ 0; 3,
+        // Equivalent:
+        // pub read_only_nested: nested AccessRestrictions [ro] @ 0; 3,
+
+        // By specifying `write_only` (or `wo`), only `NestedBitfields::with_write_only_nested` and
+        // `NestedBitfields::set_write_only_nested` will be generated (no getter and no mutable
+        // reference access):
+        pub write_only_nested: nested AccessRestrictions [write_only] @ 4; 3,
+        // Equivalent:
+        // pub write_only_nested: nested AccessRestrictions [wo] @ 4; 3,
+
+        // All accessors will be generated without any explicit access restrictions:
+        // - `NestedBitfields::read_write_nested`
+        // - `NestedBitfields::read_write_nested_mut`
+        // - `NestedBitfields::with_read_write_nested`
+        // - `NestedBitfields::set_read_write_nested`
+        pub read_write_nested: nested AccessRestrictions @ 8; 3,
     }
 }
 ```

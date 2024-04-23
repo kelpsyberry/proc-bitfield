@@ -1,6 +1,7 @@
 use crate::utils::maybe_const_assert;
 use proc_macro::TokenStream;
 use quote::quote;
+use std::borrow::Cow;
 use syn::{
     parse::{Parse, ParseStream, Result},
     Error, Expr, Lit, Token, Type,
@@ -14,6 +15,10 @@ mod kw {
 #[derive(Clone)]
 pub enum Bits {
     Single(Lit),
+    SinglePack {
+        above_below_span: proc_macro2::Span,
+        above: bool,
+    },
     Range {
         start: Lit,
         end: Lit,
@@ -37,7 +42,24 @@ pub enum Bits {
 impl Bits {
     pub fn into_span(self, last: Option<&BitsSpan>) -> Result<BitsSpan> {
         Ok(match self {
-            Bits::Single(bit) => BitsSpan::Single(bit),
+            Bits::Single(bit) => BitsSpan::Single(quote! { #bit }),
+            Bits::SinglePack {
+                above_below_span,
+                above,
+            } => {
+                let (last_start, last_end) =
+                    last.and_then(BitsSpan::to_start_end).ok_or_else(|| {
+                        Error::new(
+                            above_below_span,
+                            "cannot use field packing in this position",
+                        )
+                    })?;
+                if above {
+                    BitsSpan::Single(last_end.into_owned())
+                } else {
+                    BitsSpan::Single(quote! { {(#last_start) - 1} })
+                }
+            }
             Bits::Range { start, end } => BitsSpan::Range {
                 start: quote! { #start },
                 end: quote! { #end },
@@ -58,24 +80,21 @@ impl Bits {
                 above,
                 length,
             } => {
-                let Some(BitsSpan::Range {
-                    start: last_start,
-                    end: last_end,
-                }) = last
-                else {
-                    return Err(Error::new(
-                        above_below_span,
-                        "cannot use field packing in this position",
-                    ));
-                };
+                let (last_start, last_end) =
+                    last.and_then(BitsSpan::to_start_end).ok_or_else(|| {
+                        Error::new(
+                            above_below_span,
+                            "cannot use field packing in this position",
+                        )
+                    })?;
                 if above {
-                    let start = last_end.clone();
+                    let start = last_end.into_owned();
                     BitsSpan::Range {
                         end: quote! { {(#start) + #length} },
                         start,
                     }
                 } else {
-                    let end = last_start.clone();
+                    let end = last_start.into_owned();
                     BitsSpan::Range {
                         start: quote! { {(#end) - #length} },
                         end,
@@ -98,12 +117,18 @@ impl Parse for Bits {
                 .parse::<kw::above>()
                 .map(|a| (a.span, true))
                 .or_else(|_| input.parse::<kw::below>().map(|b| (b.span, false)))?;
-            input.parse::<Token![;]>()?;
-            let length = input.parse()?;
-            Bits::Pack {
-                above_below_span,
-                above,
-                length,
+            if input.parse::<Token![;]>().is_ok() {
+                let length = input.parse()?;
+                Bits::Pack {
+                    above_below_span,
+                    above,
+                    length,
+                }
+            } else {
+                Bits::SinglePack {
+                    above_below_span,
+                    above,
+                }
             }
         } else if input.peek(Lit) {
             let start = input.parse()?;
@@ -131,12 +156,30 @@ impl Parse for Bits {
 
 #[derive(Clone)]
 pub enum BitsSpan {
-    Single(Lit),
+    Single(proc_macro2::TokenStream),
     Range {
         start: proc_macro2::TokenStream,
         end: proc_macro2::TokenStream,
     },
     Full,
+}
+
+impl BitsSpan {
+    fn to_start_end(
+        &'_ self,
+    ) -> Option<(
+        Cow<'_, proc_macro2::TokenStream>,
+        Cow<'_, proc_macro2::TokenStream>,
+    )> {
+        match self {
+            BitsSpan::Range { start, end } => Some((Cow::Borrowed(start), Cow::Borrowed(end))),
+            BitsSpan::Single(bit) => {
+                let bit = quote! { #bit };
+                Some((Cow::Owned(bit.clone()), Cow::Owned(bit)))
+            }
+            _ => None,
+        }
+    }
 }
 
 fn maybe_ty_from_cast_expr(expr: &Expr) -> Option<Type> {
