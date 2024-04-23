@@ -589,8 +589,16 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         generics,
         fields,
     } = syn::parse_macro_input!(input);
-
+    
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let has_type_params = generics.type_params().next().is_some();
+
+    let type_params_phantom_data = if has_type_params {
+        let type_params = generics.type_params();
+        quote! { , ::core::marker::PhantomData::<#(#type_params),*> }
+    } else {
+        quote! {}
+    };
 
     let field_fns = fields.iter().map(
         |Field {
@@ -884,12 +892,14 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                 Self(<#storage_ty as ::proc_bitfield::WithBit>::with_bit::<#bit>(
                                     self.0,
                                     #calc_set_with_raw_value,
-                                ))
+                                ) #type_params_phantom_data)
                             },
                             BitsSpan::Range { start, end } => quote_spanned! {
                                 ident.span() =>
                                 Self(<#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
-                                    ::with_bits::<#start, #end>(self.0, #calc_set_with_raw_value))
+                                    ::with_bits::<#start, #end>(self.0, #calc_set_with_raw_value)
+                                    #type_params_phantom_data
+                                )
                             },
                             BitsSpan::Full => quote_spanned! {
                                 ident.span() =>
@@ -900,6 +910,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                         self.0,
                                         #calc_set_with_raw_value,
                                     )
+                                    #type_params_phantom_data
                                 )
                             },
                         };
@@ -1033,6 +1044,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                         self.0,
                                         ::proc_bitfield::Bitfield::into_storage(value),
                                     )
+                                    #type_params_phantom_data
                                 )
                             }
 
@@ -1063,12 +1075,12 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
     ).collect::<Vec<_>>();
 
     let mut impls = vec![quote! {
-        impl #impl_generics ::proc_bitfield::Bitfield for #ident<#ty_generics> #where_clause {
+        impl #impl_generics ::proc_bitfield::Bitfield for #ident #ty_generics #where_clause {
             type Storage = #storage_ty;
 
             #[inline]
             fn from_storage(storage: Self::Storage) -> Self {
-                Self(storage)
+                Self(storage #type_params_phantom_data)
             }
 
             #[inline]
@@ -1099,7 +1111,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             }
         });
         impls.push(quote! {
-            impl #impl_generics ::core::fmt::Debug for #ident<#ty_generics> #where_clause {
+            impl #impl_generics ::core::fmt::Debug for #ident #ty_generics #where_clause {
                 fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                     f.debug_struct(::core::stringify!(#ident))
                         .field("0", &self.0)
@@ -1115,11 +1127,11 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
 
     if auto_impls.from_storage {
         impls.push(quote! {
-            impl #impl_generics ::core::convert::From<#storage_ty> for #ident<#ty_generics>
+            impl #impl_generics ::core::convert::From<#storage_ty> for #ident #ty_generics
                 #where_clause
             {
                 fn from(other: #storage_ty) -> Self {
-                    Self(other)
+                    Self(other #type_params_phantom_data)
                 }
             }
         });
@@ -1127,10 +1139,10 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
 
     if auto_impls.into_storage {
         impls.push(quote! {
-            impl #impl_generics ::core::convert::From<#ident<#ty_generics>> for #storage_ty
+            impl #impl_generics ::core::convert::From<#ident #ty_generics> for #storage_ty
                 #where_clause
             {
-                fn from(other: #ident) -> Self {
+                fn from(other: #ident #ty_generics) -> Self {
                     other.0
                 }
             }
@@ -1139,7 +1151,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
 
     if auto_impls.deref_storage {
         impls.push(quote! {
-            impl #impl_generics ::core::ops::Deref for #ident<#ty_generics> #where_clause {
+            impl #impl_generics ::core::ops::Deref for #ident #ty_generics #where_clause {
                 type Target = #storage_ty;
 
                 fn deref(&self) -> &#storage_ty {
@@ -1149,12 +1161,21 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         });
     }
 
+    let type_params_phantom_data_field = if has_type_params {
+        let type_params = generics.type_params();
+        quote! { , #storage_vis ::core::marker::PhantomData<(#(#type_params),*)> }
+    } else {
+        quote! {}
+    };
+
     (quote! {
         #(#outer_attrs)*
         #[repr(transparent)]
-        #vis struct #ident #generics(#storage_vis #storage_ty) #where_clause;
+        #vis struct #ident #generics(
+            #storage_vis #storage_ty #type_params_phantom_data_field
+        ) #where_clause;
 
-        impl #impl_generics #ident<#ty_generics> #where_clause {
+        impl #impl_generics #ident #ty_generics #where_clause {
             #(#field_fns)*
         }
 
