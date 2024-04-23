@@ -1,6 +1,16 @@
 mod arr_impls;
 mod int_impls;
 
+pub trait Bitfield {
+    type Storage;
+
+    fn from_storage(storage: Self::Storage) -> Self;
+    fn into_storage(self) -> Self::Storage;
+
+    fn storage(&self) -> &Self::Storage;
+    fn storage_mut(&mut self) -> &mut Self::Storage;
+}
+
 /// Read a range of bits inside a value.
 pub trait Bits<T> {
     /// Read `self`'s `START..END` bit range (with `END` excluded) as a value of type `T`.

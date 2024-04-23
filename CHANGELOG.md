@@ -1,3 +1,6 @@
+## Unreleased
+- Added nested bitfield support, used by specifying a field's type as `nested T`
+
 ## 0.4.0
 - **BREAKING**: Changed the default behavior of unsafe conversions to mark the accessor as unsafe; the old behavior (safe accessor that performs an unsafe conversion) can be obtained by adding a `!` suffix to the attribute name, i.e. `unsafe_get! T`
 - Added field conversions through functions with `get_fn`, `set_fn`, `unsafe_get_fn`, `unsafe_set_fn`, `try_get_fn`, `try_set_fn`, `unwrap_get_fn` and `unwrap_set_fn`
@@ -30,7 +33,7 @@
 
 ## 0.2.2
 - Fixed const traits on the latest nightly
-- Added optionals `FromRaw`, `IntoRaw` and `DerefRaw` automatic implementations
+- Added optional `FromRaw`, `IntoRaw` and `DerefRaw` automatic implementations
 - Fixed some field type conversions failing when the required trait was not in scope
 - Fixed code for the example
 

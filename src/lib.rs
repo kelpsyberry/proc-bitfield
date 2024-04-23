@@ -41,6 +41,7 @@ mod conv;
 pub use conv::*;
 mod traits;
 pub use traits::*;
+pub mod nested;
 
 #[cfg(any(test, doc))]
 extern crate self as proc_bitfield;
