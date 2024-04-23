@@ -1,6 +1,7 @@
 ## Unreleased
 - **BREAKING**: Renamed `FromRaw`, `IntoRaw` and `DerefRaw` to `FromStorage`, `IntoStorage` and `DerefStorage`
 - Added nested bitfield support, used by specifying a field's type as `nested T`
+- Made bitfields `#[repr(transparent)]`
 
 ## 0.4.0
 - **BREAKING**: Changed the default behavior of unsafe conversions to mark the accessor as unsafe; the old behavior (safe accessor that performs an unsafe conversion) can be obtained by adding a `!` suffix to the attribute name, i.e. `unsafe_get! T`

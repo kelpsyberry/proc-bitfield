@@ -1151,6 +1151,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
 
     (quote! {
         #(#outer_attrs)*
+        #[repr(transparent)]
         #vis struct #ident #generics(#storage_vis #storage_ty) #where_clause;
 
         impl #impl_generics #ident<#ty_generics> #where_clause {
