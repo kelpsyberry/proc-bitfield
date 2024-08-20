@@ -8,7 +8,7 @@
 bitfield! {
     /// A bitfield showcasing how to specify bit ranges.
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct BitRanges(pub u32): Debug, FromStorage, IntoStorage, DerefStorage {
+    pub struct BitRanges(pub u32): Debug, FromRaw, IntoRaw {
         // A single field spanning the entire bitfield, using an unbounded range:
         pub whole_bitfield: u32 @ ..,                 // Bits 0 to 31
 
@@ -60,7 +60,7 @@ bitfield! {
 # use proc_bitfield::bitfield;
 bitfield! {
     /// A bitfield showcasing how to specify access restrictions.
-    pub struct AccessRestrictions(pub u8): Debug, FromStorage, IntoStorage, DerefStorage {
+    pub struct AccessRestrictions(pub u8): Debug, FromRaw, IntoRaw {
         // By specifying `read_only` (or `ro`), only `AccessRestrictions::read_only_flag` will be
         // generated (no setters):
         pub read_only_flag: bool [read_only] @ 0,
@@ -88,7 +88,7 @@ bitfield! {
 # use proc_bitfield::bitfield;
 bitfield! {
     /// A bitfield showcasing how to use nested bitfields.
-    pub struct NestedBitfields(pub u16): Debug, FromStorage, IntoStorage, DerefStorage {
+    pub struct NestedBitfields(pub u16): Debug, FromRaw, IntoRaw {
         // By specifying `read_only` (or `ro`), only `NestedBitfields::read_only_nested` will be
         // generated (no setters and no mutable reference access):
         pub read_only_nested: nested AccessRestrictions [read_only] @ 0; 3,
@@ -124,7 +124,7 @@ bitfield! {
 
 bitfield! {
     /// A bitfield showcasing various kinds of field type conversions.
-    pub struct FieldTypeConversions(pub u16): Debug, FromStorage, IntoStorage, DerefStorage {
+    pub struct FieldTypeConversions(pub u16): Debug, FromRaw, IntoRaw {
         // Infallible conversions
 
         // Will:
