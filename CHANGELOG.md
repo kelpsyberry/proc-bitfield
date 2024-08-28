@@ -1,4 +1,4 @@
-## Unreleased
+## 0.5.0
 - **BREAKING**: Renamed `FromRaw`, `IntoRaw` and `DerefRaw` to `FromStorage`, `IntoStorage` and `DerefStorage`
 - Added nested bitfield support, used by specifying a field's type as `nested T`
 - Made bitfields `#[repr(transparent)]`
