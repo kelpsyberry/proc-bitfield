@@ -2,7 +2,7 @@
 - **BREAKING**: Renamed `FromRaw`, `IntoRaw` and `DerefRaw` to `FromStorage`, `IntoStorage` and `DerefStorage`
 - Added nested bitfield support, used by specifying a field's type as `nested T`
 - Made bitfields `#[repr(transparent)]`
-- Added the ability to pack fields next to each other with `above; bits` and `below; bits` *FieldRange* specifiers
+- Added the ability to pack fields next to each other with `above; bits`, `below; bits`, `above` and `below` *FieldRange* specifiers
 - Fixed generic bitfield support; however, if used, compile-time checks will be converted to runtime ones due to language limitations
 
 ## 0.4.0

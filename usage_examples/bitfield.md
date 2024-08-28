@@ -86,6 +86,9 @@ bitfield! {
 
 ```rust
 # use proc_bitfield::bitfield;
+# 
+# bitfield! { struct AccessRestrictions(pub u8): Debug {} }
+
 bitfield! {
     /// A bitfield showcasing how to use nested bitfields.
     pub struct NestedBitfields(pub u16): Debug, FromStorage, IntoStorage, DerefStorage {
