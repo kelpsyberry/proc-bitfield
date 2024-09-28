@@ -74,7 +74,7 @@ Specifying the `above` `;` *L*, `below` `;` *L*, `above` and `below` field range
 
 ### Bit expression
 
-*BitExpression* corresponds to any of
+*BitExpression* corresponds to any of:
 - [*LitExpression*]
 - `(` [*Expression*] `)`
 
