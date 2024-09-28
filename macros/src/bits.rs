@@ -17,24 +17,20 @@ pub struct BitExpr(Expr);
 
 impl Parse for BitExpr {
     fn parse(input: ParseStream) -> Result<Self> {
-        if input.peek(syn::token::Paren) {
+        Ok(Self(if input.peek(syn::token::Paren) {
             let content;
             syn::parenthesized!(content in input);
-            Ok(Self(content.parse()?))
+            content.parse()?
         } else {
-            let lit = Expr::Lit(syn::ExprLit {
-                attrs: vec![],
-                lit: input.parse()?,
-            });
-            Ok(Self(lit))
-        }
+            input.parse()?
+        }))
     }
 }
 
 impl quote::ToTokens for BitExpr {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let expr = &self.0;
-        tokens.extend(quote::quote! { { const { #expr } } })
+        tokens.extend(quote::quote!({#expr}))
     }
 }
 
