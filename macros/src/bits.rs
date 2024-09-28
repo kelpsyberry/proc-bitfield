@@ -3,7 +3,9 @@ use proc_macro::TokenStream;
 use quote::quote;
 use std::borrow::Cow;
 use syn::{
+    parenthesized,
     parse::{Parse, ParseStream, Result},
+    token::Paren,
     Error, Expr, Lit, Token, Type,
 };
 
@@ -15,11 +17,17 @@ mod kw {
 #[derive(Clone)]
 pub struct BitExpr(Expr);
 
+impl BitExpr {
+    fn peek(input: ParseStream) -> bool {
+        input.peek(Lit) || input.peek(Paren)
+    }
+}
+
 impl Parse for BitExpr {
     fn parse(input: ParseStream) -> Result<Self> {
-        Ok(Self(if input.peek(syn::token::Paren) {
+        Ok(Self(if input.peek(Paren) {
             let content;
-            syn::parenthesized!(content in input);
+            parenthesized!(content in input);
             content.parse()?
         } else {
             input.parse()?
@@ -30,7 +38,7 @@ impl Parse for BitExpr {
 impl quote::ToTokens for BitExpr {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let expr = &self.0;
-        tokens.extend(quote::quote!({#expr}))
+        tokens.extend(quote! { { #expr } })
     }
 }
 
@@ -152,7 +160,7 @@ impl Parse for Bits {
                     above,
                 }
             }
-        } else if input.peek(Lit) || input.peek(syn::token::Paren) {
+        } else if BitExpr::peek(input) {
             let start = input.parse()?;
             let lookahead = input.lookahead1();
             if lookahead.peek(Token![..=]) {

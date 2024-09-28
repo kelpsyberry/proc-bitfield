@@ -40,14 +40,14 @@ If specified, `core::ops::Deref` will be implemented automatically for the curre
 ### Single fields
 
 Single fields can be declared by using the form:
-> [*Visibility*] [IDENTIFIER] `:` [*Type*] (`[`(*Option* `,`)<sup>*</sup> *Option*`]`)<sup>?</sup> `@` *FieldRange*
+> [*Visibility*] [IDENTIFIER] `:` [*Type*] (`[`(*Option* `,`)<sup>*</sup> *Option*`]`)<sup>?</sup> `@` [*FieldRange*]
 
 They will have by-value getters (`bitfield.x()`) and setters (`bitfield.with_x(x)` and `bitfield.set_x(x)`) declared for them as applicable.
 
 ### Nested bitfield fields
 
 Fields that contain nested bitfields can be declared by using the form:
-> [*Visibility*] [IDENTIFIER] `:` `nested` [*Type*] (`[`(*Option* `,`)<sup>*</sup> *Option*`]`)<sup>?</sup> `@` *FieldRange*
+> [*Visibility*] [IDENTIFIER] `:` `nested` [*Type*] (`[`(*Option* `,`)<sup>*</sup> *Option*`]`)<sup>?</sup> `@` [*FieldRange*]
 
 They will have by-reference accessors (`bitfield.x()` and `bitfield.x_mut()`) and by-value setters (`bitfield.with_x(x)` and `bitfield.set_x(x)`) declared for them as applicable.
 
@@ -55,28 +55,27 @@ Nested bitfield fields don't support field conversion attributes, only access re
 
 ### Field bit ranges
 
-*FieldRange* corresponds to any of (where *L* is an alias for [*BitExpression*]):
+*FieldRange* corresponds to any of (where *B* is an alias for [*BitExpression*]):
 - `..`, to use every bit
-- *L*`..=`*L*, to use the bits specified by an inclusive range
-- *L*`..`*L*, to use the bits specified by an exclusive range
-- *L*`;` *L*, to use the bits specified by a (start, length) pair
-- `above` `;` *L*, to place a field with the given length above the previous one
-- `below` `;` *L*, to place a field with the given length below the previous one
+- *B*`..=`*B*, to use the bits specified by an inclusive range
+- *B*`..`*B*, to use the bits specified by an exclusive range
+- *B*`;` *B*, to use the bits specified by a (start, length) pair
+- `above` `;` *B*, to place a field with the given length above the previous one
+- `below` `;` *B*, to place a field with the given length below the previous one
 
 Only for `bool` fields, separate *FieldRange* specifications are present that will use the `Bit` traits instead of `Bits<T>`
-- *L*, to use a single bit; unlike the other specifications
+- *B*, to use a single bit; unlike the other specifications
 - `above`, to place a single bit above the previous field
 - `below`, to place a single bit below the previous field
 
-Specifying the `above` `;` *L*, `below` `;` *L*, `above` and `below` field ranges for the first field in the bitfield, or immediately after a `..` field, is an error.
+Specifying the `above` `;` *B*, `below` `;` *B*, `above` and `below` field ranges for the first field in the bitfield, or immediately after a `..` field, is an error.
 
 *Option*s can be specified in brackets, matching any of the ones defined below.
 
-### Bit expression
+### Bit expressions
 
-*BitExpression* corresponds to any of:
-- [*LitExpression*]
-- `(` [*Expression*] `)`
+*BitExpression* is defined syntactically as:
+> *BitExpression*: [*LiteralExpression*] | `(` [*Expression*] `)`
 
 ### Access restrictions (single and nested fields)
 
@@ -141,17 +140,17 @@ In cases where type inference fails, the accessed field's type `T` can be specif
 
 Due to implementation limitations, specifying the bitfield's storage type through a cast is required when the field's bit range is `..`, i.e. `bits!(0x1234 as u16, ..)`.
 
-An explicit field type mustn't be specified when accessing a single bit as a boolean (using the single [*LiteralExpression*] form of [*FieldRange*]), as analogously to `bitfield!` fields it's always fixed to `bool`.
+An explicit field type mustn't be specified when accessing a single bit as a boolean (using the single [*BitExpression*] form of [*FieldRange*]), as analogously to `bitfield!` fields it's always fixed to `bool`.
 
 ## Formal syntax
 
 The general formal syntax for macro calls is:
 
 `bits!`:
-> [*Expression*] `,` ([*Type*]`@`)<sup>?</sup> *FieldRange*
+> [*Expression*] `,` ([*Type*]`@`)<sup>?</sup> [*FieldRange*]
 
 `with_bits!` and `set_bits!`:
-> [*Expression*] `,` ([*Type*]`@`)<sup>?</sup> *FieldRange* `=` [*Expression*]
+> [*Expression*] `,` ([*Type*]`@`)<sup>?</sup> [*FieldRange*] `=` [*Expression*]
 
 # Other derive macros
 
@@ -173,8 +172,8 @@ For each integer type `U`, an implementation will be generated iff `T: TryFrom<U
 
 This derive macro is currently gated behind the `nightly` feature, as it requires [`#![feature(trivial_bounds)]`](https://doc.rust-lang.org/beta/unstable-book/language-features/trivial-bounds.html) to be enabled in the crate using it.
 
-[*FieldRange*]: #fieldrange
-[*BitExpression*]: #bitexpression
+[*FieldRange*]: #field-bit-ranges
+[*BitExpression*]: #bit-expressions
 [*ConvFn*]: #field-type-conversions
 [*Visibility*]: https://doc.rust-lang.org/stable/reference/visibility-and-privacy.html
 [IDENTIFIER]: https://doc.rust-lang.org/stable/reference/identifiers.html
