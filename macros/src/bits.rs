@@ -30,7 +30,7 @@ impl Parse for BitExpr {
             parenthesized!(content in input);
             content.parse()?
         } else {
-            input.parse()?
+            Expr::Lit(input.parse()?)
         }))
     }
 }
