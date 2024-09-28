@@ -55,7 +55,7 @@ Nested bitfield fields don't support field conversion attributes, only access re
 
 ### Field bit ranges
 
-*FieldRange* corresponds to any of (where *L* is an alias for [*LiteralExpression*]):
+*FieldRange* corresponds to any of (where *L* is an alias for [*BitExpression*]):
 - `..`, to use every bit
 - *L*`..=`*L*, to use the bits specified by an inclusive range
 - *L*`..`*L*, to use the bits specified by an exclusive range
@@ -71,6 +71,12 @@ Only for `bool` fields, separate *FieldRange* specifications are present that wi
 Specifying the `above` `;` *L*, `below` `;` *L*, `above` and `below` field ranges for the first field in the bitfield, or immediately after a `..` field, is an error.
 
 *Option*s can be specified in brackets, matching any of the ones defined below.
+
+### Bit expression
+
+*BitExpression* corresponds to any of
+- [*LitExpression*]
+- `(` [*Expression*] `)`
 
 ### Access restrictions (single and nested fields)
 
@@ -168,6 +174,7 @@ For each integer type `U`, an implementation will be generated iff `T: TryFrom<U
 This derive macro is currently gated behind the `nightly` feature, as it requires [`#![feature(trivial_bounds)]`](https://doc.rust-lang.org/beta/unstable-book/language-features/trivial-bounds.html) to be enabled in the crate using it.
 
 [*FieldRange*]: #fieldrange
+[*BitExpression*]: #bitexpression
 [*ConvFn*]: #field-type-conversions
 [*Visibility*]: https://doc.rust-lang.org/stable/reference/visibility-and-privacy.html
 [IDENTIFIER]: https://doc.rust-lang.org/stable/reference/identifiers.html

@@ -13,28 +13,54 @@ mod kw {
 }
 
 #[derive(Clone)]
+pub struct BitExpr(Expr);
+
+impl Parse for BitExpr {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.peek(syn::token::Paren) {
+            let content;
+            syn::parenthesized!(content in input);
+            Ok(Self(content.parse()?))
+        } else {
+            let lit = Expr::Lit(syn::ExprLit {
+                attrs: vec![],
+                lit: input.parse()?,
+            });
+            Ok(Self(lit))
+        }
+    }
+}
+
+impl quote::ToTokens for BitExpr {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let expr = &self.0;
+        tokens.extend(quote::quote! { { const { #expr } } })
+    }
+}
+
+#[derive(Clone)]
 pub enum Bits {
-    Single(Lit),
+    Single(BitExpr),
     SinglePack {
         above_below_span: proc_macro2::Span,
         above: bool,
     },
     Range {
-        start: Lit,
-        end: Lit,
+        start: BitExpr,
+        end: BitExpr,
     },
     RangeInclusive {
-        start: Lit,
-        end: Lit,
+        start: BitExpr,
+        end: BitExpr,
     },
     OffsetAndLength {
-        start: Lit,
-        length: Lit,
+        start: BitExpr,
+        length: BitExpr,
     },
     Pack {
         above_below_span: proc_macro2::Span,
         above: bool,
-        length: Lit,
+        length: BitExpr,
     },
     RangeFull,
 }
@@ -130,7 +156,7 @@ impl Parse for Bits {
                     above,
                 }
             }
-        } else if input.peek(Lit) {
+        } else if input.peek(Lit) || input.peek(syn::token::Paren) {
             let start = input.parse()?;
             let lookahead = input.lookahead1();
             if lookahead.peek(Token![..=]) {
