@@ -3,7 +3,7 @@ use crate::{
     utils::{maybe_const_assert, parse_parens},
 };
 use proc_macro::TokenStream;
-use quote::{format_ident, quote, quote_spanned};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
 use std::mem::replace;
 use syn::{
     braced, bracketed, parenthesized,
@@ -616,8 +616,8 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
              ty: field_ty,
              content
          }| {
-            let storage_ty_bits = quote! { {::core::mem::size_of::<#storage_ty>() << 3} };
-            let field_ty_bits = quote! { {::core::mem::size_of::<#field_ty>() << 3} };
+            let storage_ty_bits = quote! { ::core::mem::size_of::<#storage_ty>() << 3 };
+            let field_ty_bits = quote! { ::core::mem::size_of::<#field_ty>() << 3 };
 
             let bits_span = match bits.clone().into_span(last_bits_span.as_ref()) {
                 Ok(bits_span) => bits_span,
@@ -632,19 +632,22 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     BitsSpan::Single(bit) => {
                         quote_spanned! {
                             ident.span() =>
-                            #assert(#bit < #storage_ty_bits);
+                            #assert((#bit) < (#storage_ty_bits));
                         }
                     }
                     BitsSpan::Range { start, end } => {
                         quote_spanned! {
                             ident.span() =>
-                            #assert(#end > #start);
-                            #assert(#start < #storage_ty_bits && #end <= #storage_ty_bits);
-                            #assert(#end - #start <= #field_ty_bits);
+                            #assert((#end) > (#start));
+                            #assert((#start) < (#storage_ty_bits) && (#end) <= (#storage_ty_bits));
+                            #assert((#end) - (#start) <= (#field_ty_bits));
                         }
                     }
                     BitsSpan::Full => {
-                        quote! {}
+                        quote_spanned! {
+                            ident.span() =>
+                            #assert((#storage_ty_bits) <= (#field_ty_bits));
+                        }
                     }
                 };
                 move || {
@@ -666,14 +669,17 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
 
                     let getter = if !matches!(&get_kind, AccessorKind::Disabled) {
                         let (calc_get_result, get_output_ty) = match get_kind {
-                            AccessorKind::Default => (quote! { raw_value }, quote! { #field_ty }),
+                            AccessorKind::Default => (
+                                quote! { raw_value },
+                                field_ty.to_token_stream(),
+                            ),
                             AccessorKind::Disabled => unreachable!(),
 
                             AccessorKind::ConvTy(ty) => (
                                 quote! {
                                     <#ty as ::core::convert::From<#field_ty>>::from(raw_value)
                                 },
-                                quote! { #ty },
+                                ty.to_token_stream(),
                             ),
                             AccessorKind::UnsafeConvTy { ty, has_safe_accessor } => {
                                 let unsafe_ = has_safe_accessor.then(|| quote! { unsafe })
@@ -686,7 +692,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                             >::unsafe_from(raw_value)
                                         }
                                     },
-                                    quote! { #ty },
+                                    ty.to_token_stream(),
                                 )
                             },
                             AccessorKind::TryConvTy(ty) => (
@@ -708,30 +714,30 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                         #ty as ::core::convert::TryFrom<#field_ty>
                                     >::try_from(raw_value).unwrap()
                                 },
-                                quote! { #ty },
+                                ty.to_token_stream(),
                             ),
 
                             AccessorKind::ConvFn { fn_, ty } => (
                                 quote! { #fn_(raw_value) },
-                                quote! { #ty },
+                                ty.to_token_stream(),
                             ),
                             AccessorKind::UnsafeConvFn { fn_, ty, has_safe_accessor } => {
                                 let unsafe_ = has_safe_accessor.then(|| quote! { unsafe })
                                     .into_iter();
                                 (
                                     quote! { #(#unsafe_)* { #fn_(raw_value) } },
-                                    quote! { #ty },
+                                    ty.to_token_stream(),
                                 )
                             },
 
                             AccessorKind::TryGetFn { fn_, result_ty } => (
                                 quote! { #fn_(raw_value) },
-                                quote! { #result_ty },
+                                result_ty.to_token_stream(),
                             ),
                             AccessorKind::TrySetFn { .. } => unreachable!(),
                             AccessorKind::UnwrapConvFn { fn_, ty } => (
                                 quote! { #fn_(raw_value).unwrap() },
-                                quote! { #ty },
+                                ty.to_token_stream(),
                             )
                         };
 
@@ -740,7 +746,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                 quote_spanned! {
                                     ident.span() =>
                                     let raw_value = <#storage_ty as ::proc_bitfield::Bit>
-                                        ::bit::<#bit>(&self.0);
+                                        ::bit::<{#bit}>(&self.0);
                                 }
                             }
                             BitsSpan::Range { start, end } => {
@@ -748,7 +754,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                     ident.span() =>
                                     let raw_value = <
                                         #storage_ty as ::proc_bitfield::Bits<#field_ty>
-                                    >::bits::<#start, #end>(&self.0);
+                                    >::bits::<{#start}, {#end}>(&self.0);
                                 }
                             }
                             BitsSpan::Full => {
@@ -756,7 +762,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                     ident.span() =>
                                     let raw_value = <
                                         #storage_ty as ::proc_bitfield::Bits<#field_ty>
-                                    >::bits::<0, #storage_ty_bits>(&self.0);
+                                    >::bits::<0, {#storage_ty_bits}>(&self.0);
                                 }
                             }
                         };
@@ -769,6 +775,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             #(#attrs)*
                             #[inline]
                             #[allow(clippy::identity_op)]
+                            #[allow(unused_braces)]
                             #vis #(#get_unsafe)* fn #ident(&self) -> #get_output_ty {
                                 #bits_span_asserts
                                 #get_raw_value
@@ -906,7 +913,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         let with_raw_value = match &bits_span {
                             BitsSpan::Single(bit) => quote_spanned! {
                                 ident.span() =>
-                                Self(<#storage_ty as ::proc_bitfield::WithBit>::with_bit::<#bit>(
+                                Self(<#storage_ty as ::proc_bitfield::WithBit>::with_bit::<{#bit}>(
                                     self.0,
                                     #calc_set_with_raw_value,
                                 ) #type_params_phantom_data)
@@ -914,7 +921,10 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             BitsSpan::Range { start, end } => quote_spanned! {
                                 ident.span() =>
                                 Self(<#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
-                                    ::with_bits::<#start, #end>(self.0, #calc_set_with_raw_value)
+                                    ::with_bits::<{#start}, {#end}>(
+                                        self.0,
+                                        #calc_set_with_raw_value,
+                                    )
                                     #type_params_phantom_data
                                 )
                             },
@@ -923,7 +933,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                 Self(
                                     <
                                         #storage_ty as ::proc_bitfield::WithBits<#field_ty>
-                                    >::with_bits::<0, #storage_ty_bits>(
+                                    >::with_bits::<0, {#storage_ty_bits}>(
                                         self.0,
                                         #calc_set_with_raw_value,
                                     )
@@ -935,7 +945,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                         let set_raw_value = match &bits_span {
                             BitsSpan::Single(bit) => quote_spanned! {
                                 ident.span() =>
-                                <#storage_ty as ::proc_bitfield::SetBit>::set_bit::<#bit>(
+                                <#storage_ty as ::proc_bitfield::SetBit>::set_bit::<{#bit}>(
                                     &mut self.0,
                                     #calc_set_with_raw_value,
                                 )
@@ -944,7 +954,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                                 ident.span() =>
                                 <
                                     #storage_ty as ::proc_bitfield::SetBits<#field_ty>
-                                >::set_bits::<#start, #end>(
+                                >::set_bits::<{#start}, {#end}>(
                                     &mut self.0,
                                     #calc_set_with_raw_value,
                                 )
@@ -952,7 +962,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             BitsSpan::Full => quote_spanned! {
                                 ident.span() =>
                                 <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
-                                    ::set_bits::<0, #storage_ty_bits>(
+                                    ::set_bits::<0, {#storage_ty_bits}>(
                                         &mut self.0,
                                         #calc_set_with_raw_value,
                                     )
@@ -969,6 +979,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             #[inline]
                             #[must_use]
                             #[allow(clippy::identity_op)]
+                            #[allow(unused_braces)]
                             #vis #(#set_with_unsafe_1)* fn #with_fn_ident(
                                 self,
                                 value: #set_with_input_ty,
@@ -981,6 +992,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             #(#attrs)*
                             #[inline]
                             #[allow(clippy::identity_op)]
+                            #[allow(unused_braces)]
                             #vis #(#set_with_unsafe_2)* fn #set_fn_ident(
                                 &mut self,
                                 value: #set_with_input_ty,
@@ -1021,9 +1033,10 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             #(#attrs)*
                             #[inline]
                             #[allow(clippy::identity_op)]
-                            #vis fn #ident(&self)
-                                -> ::proc_bitfield::nested::NestedRef<Self, #field_ty, #start, #end>
-                            {
+                            #[allow(unused_braces)]
+                            #vis fn #ident(&self) -> ::proc_bitfield::nested::NestedRef<
+                                Self, #field_ty, {#start}, {#end}
+                            > {
                                 #bits_span_asserts
                                 ::proc_bitfield::nested::NestedRef::new(self)
                             }
@@ -1038,9 +1051,10 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             #(#attrs)*
                             #[inline]
                             #[allow(clippy::identity_op)]
+                            #[allow(unused_braces)]
                             #vis fn #mut_fn_ident(&mut self)
                                 -> ::proc_bitfield::nested::NestedRefMut<
-                                    Self, #field_ty, #start, #end
+                                    Self, #field_ty, {#start}, {#end}
                                 >
                             {
                                 #bits_span_asserts
@@ -1059,12 +1073,13 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             #[inline]
                             #[must_use]
                             #[allow(clippy::identity_op)]
+                            #[allow(unused_braces)]
                             #vis fn #with_fn_ident(self, value: #field_ty) -> Self {
                                 #bits_span_asserts_1
                                 Self(
                                     <#storage_ty as ::proc_bitfield::WithBits<
                                         <#field_ty as ::proc_bitfield::Bitfield>::Storage>
-                                    >::with_bits::<#start, #end>(
+                                    >::with_bits::<{#start}, {#end}>(
                                         self.0,
                                         ::proc_bitfield::Bitfield::into_storage(value),
                                     )
@@ -1075,11 +1090,12 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                             #(#attrs)*
                             #[inline]
                             #[allow(clippy::identity_op)]
+                            #[allow(unused_braces)]
                             #vis fn #set_fn_ident(&mut self, value: #field_ty) {
                                 #bits_span_asserts_2
                                 <#storage_ty as ::proc_bitfield::SetBits<
                                     <#field_ty as ::proc_bitfield::Bitfield>::Storage>
-                                >::set_bits::<#start, #end>(
+                                >::set_bits::<{#start}, {#end}>(
                                     &mut self.0,
                                     ::proc_bitfield::Bitfield::into_storage(value),
                                 );

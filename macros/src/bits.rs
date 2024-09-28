@@ -1,6 +1,6 @@
 use crate::utils::maybe_const_assert;
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, ToTokens};
 use std::borrow::Cow;
 use syn::{
     parenthesized,
@@ -35,10 +35,9 @@ impl Parse for BitExpr {
     }
 }
 
-impl quote::ToTokens for BitExpr {
+impl ToTokens for BitExpr {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let expr = &self.0;
-        tokens.extend(quote! { { #expr } })
+        self.0.to_tokens(tokens)
     }
 }
 
@@ -67,73 +66,6 @@ pub enum Bits {
         length: BitExpr,
     },
     RangeFull,
-}
-
-impl Bits {
-    pub fn into_span(self, last: Option<&BitsSpan>) -> Result<BitsSpan> {
-        Ok(match self {
-            Bits::Single(bit) => BitsSpan::Single(quote! { #bit }),
-            Bits::SinglePack {
-                above_below_span,
-                above,
-            } => {
-                let (last_start, last_end) =
-                    last.and_then(BitsSpan::to_start_end).ok_or_else(|| {
-                        Error::new(
-                            above_below_span,
-                            "cannot use field packing in this position",
-                        )
-                    })?;
-                if above {
-                    BitsSpan::Single(last_end.into_owned())
-                } else {
-                    BitsSpan::Single(quote! { {(#last_start) - 1} })
-                }
-            }
-            Bits::Range { start, end } => BitsSpan::Range {
-                start: quote! { #start },
-                end: quote! { #end },
-            },
-            Bits::RangeInclusive { start, end } => BitsSpan::Range {
-                start: quote! { #start },
-                end: quote! { {#end + 1} },
-            },
-            Bits::OffsetAndLength { start, length } => {
-                let end = quote! { {#start + #length} };
-                BitsSpan::Range {
-                    start: quote! { #start },
-                    end,
-                }
-            }
-            Bits::Pack {
-                above_below_span,
-                above,
-                length,
-            } => {
-                let (last_start, last_end) =
-                    last.and_then(BitsSpan::to_start_end).ok_or_else(|| {
-                        Error::new(
-                            above_below_span,
-                            "cannot use field packing in this position",
-                        )
-                    })?;
-                if above {
-                    let start = last_end.into_owned();
-                    BitsSpan::Range {
-                        end: quote! { {(#start) + #length} },
-                        start,
-                    }
-                } else {
-                    let end = last_start.into_owned();
-                    BitsSpan::Range {
-                        start: quote! { {(#end) - #length} },
-                        end,
-                    }
-                }
-            }
-            Bits::RangeFull => BitsSpan::Full,
-        })
-    }
 }
 
 impl Parse for Bits {
@@ -184,6 +116,73 @@ impl Parse for Bits {
     }
 }
 
+impl Bits {
+    pub fn into_span(self, last: Option<&BitsSpan>) -> Result<BitsSpan> {
+        Ok(match self {
+            Bits::Single(bit) => BitsSpan::Single(bit.to_token_stream()),
+            Bits::SinglePack {
+                above_below_span,
+                above,
+            } => {
+                let (last_start, last_end) =
+                    last.and_then(BitsSpan::to_start_end).ok_or_else(|| {
+                        Error::new(
+                            above_below_span,
+                            "cannot use field packing in this position",
+                        )
+                    })?;
+                if above {
+                    BitsSpan::Single(last_end.into_owned())
+                } else {
+                    BitsSpan::Single(quote! { (#last_start) - 1 })
+                }
+            }
+            Bits::Range { start, end } => BitsSpan::Range {
+                start: start.to_token_stream(),
+                end: end.to_token_stream(),
+            },
+            Bits::RangeInclusive { start, end } => BitsSpan::Range {
+                start: start.to_token_stream(),
+                end: quote! { (#end) + 1 },
+            },
+            Bits::OffsetAndLength { start, length } => {
+                let end = quote! { (#start) + (#length) };
+                BitsSpan::Range {
+                    start: start.to_token_stream(),
+                    end,
+                }
+            }
+            Bits::Pack {
+                above_below_span,
+                above,
+                length,
+            } => {
+                let (last_start, last_end) =
+                    last.and_then(BitsSpan::to_start_end).ok_or_else(|| {
+                        Error::new(
+                            above_below_span,
+                            "cannot use field packing in this position",
+                        )
+                    })?;
+                if above {
+                    let start = last_end.into_owned();
+                    BitsSpan::Range {
+                        end: quote! { (#start) + (#length) },
+                        start,
+                    }
+                } else {
+                    let end = last_start.into_owned();
+                    BitsSpan::Range {
+                        start: quote! { (#end) - (#length) },
+                        end,
+                    }
+                }
+            }
+            Bits::RangeFull => BitsSpan::Full,
+        })
+    }
+}
+
 #[derive(Clone)]
 pub enum BitsSpan {
     Single(proc_macro2::TokenStream),
@@ -203,10 +202,7 @@ impl BitsSpan {
     )> {
         match self {
             BitsSpan::Range { start, end } => Some((Cow::Borrowed(start), Cow::Borrowed(end))),
-            BitsSpan::Single(bit) => {
-                let bit = quote! { #bit };
-                Some((Cow::Owned(bit.clone()), Cow::Owned(bit)))
-            }
+            BitsSpan::Single(bit) => Some((Cow::Borrowed(bit), Cow::Owned(quote! { (#bit) + 1 }))),
             _ => None,
         }
     }
@@ -223,8 +219,8 @@ fn maybe_ty_from_cast_expr(expr: &Expr) -> Option<Type> {
 
 fn ty_bits(ty: &Option<Type>, runtime_value: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
     match ty {
-        Some(ty) => quote! { {::core::mem::size_of::<#ty>() << 3} },
-        None => quote! { {::core::mem::size_of_val(#runtime_value) << 3} },
+        Some(ty) => quote! { ::core::mem::size_of::<#ty>() << 3 },
+        None => quote! { ::core::mem::size_of_val(#runtime_value) << 3 },
     }
 }
 
@@ -240,20 +236,20 @@ fn asserts(
     match bits_span {
         BitsSpan::Single(bit) => {
             quote! {
-                #storage_ty_assert(#bit < #storage_ty_bits);
+                #storage_ty_assert((#bit) < (#storage_ty_bits));
             }
         }
         BitsSpan::Range { start, end } => {
             quote! {
-                ::proc_bitfield::__private::static_assertions::const_assert!(#end > #start);
-                #storage_ty_assert(#start < #storage_ty_bits && #end <= #storage_ty_bits);
-                #field_ty_assert(#end - #start <= #field_ty_bits);
+                ::proc_bitfield::__private::static_assertions::const_assert!((#end) > (#start));
+                #storage_ty_assert((#start) < (#storage_ty_bits) && (#end) <= (#storage_ty_bits));
+                #field_ty_assert((#end) - (#start) <= (#field_ty_bits));
             }
         }
         BitsSpan::Full => {
             let assert = maybe_const_assert(has_storage_ty && has_field_ty);
             quote! {
-                #assert(#storage_ty_bits <= #field_ty_bits);
+                #assert((#storage_ty_bits) <= (#field_ty_bits));
             }
         }
     }
@@ -342,7 +338,7 @@ pub fn bits(input: TokenStream) -> TokenStream {
             quote! {{
                 let storage_value = &(#storage_value);
                 #asserts
-                ::proc_bitfield::Bit::bit::<#bit>(storage_value)
+                ::proc_bitfield::Bit::bit::<{#bit}>(storage_value)
             }}
         }
         BitsSpan::Range { start, end } => {
@@ -351,7 +347,7 @@ pub fn bits(input: TokenStream) -> TokenStream {
                 let mut result = #maybe_uninit_ty::uninit();
                 #asserts
                 result = #maybe_uninit_ty::new(
-                    #bits_trait::bits::<#start, #end>(storage_value),
+                    #bits_trait::bits::<{#start}, {#end}>(storage_value),
                 );
                 unsafe { result.assume_init() }
             }}
@@ -370,7 +366,7 @@ pub fn bits(input: TokenStream) -> TokenStream {
                 let mut result = #maybe_uninit_ty::uninit();
                 #asserts
                 result = #maybe_uninit_ty::new(
-                    #bits_trait::bits::<0, #storage_ty_bits>(storage_value),
+                    #bits_trait::bits::<0, {#storage_ty_bits}>(storage_value),
                 );
                 unsafe { result.assume_init() }
             }}
@@ -452,7 +448,7 @@ pub fn with_bits(input: TokenStream) -> TokenStream {
             quote! {{
                 let storage_value = #storage_value;
                 #asserts
-                ::proc_bitfield::WithBit::with_bit::<#bit>(storage_value, #field_value)
+                ::proc_bitfield::WithBit::with_bit::<{#bit}>(storage_value, #field_value)
             }}
         }
         BitsSpan::Range { start, end } => {
@@ -460,7 +456,7 @@ pub fn with_bits(input: TokenStream) -> TokenStream {
                 let storage_value = #storage_value;
                 let field_value = #field_value;
                 #asserts
-                #bits_trait::with_bits::<#start, #end>(storage_value, field_value)
+                #bits_trait::with_bits::<{#start}, {#end}>(storage_value, field_value)
             }}
         }
         BitsSpan::Full => {
@@ -476,7 +472,7 @@ pub fn with_bits(input: TokenStream) -> TokenStream {
                 let storage_value = #storage_value;
                 let field_value = #field_value;
                 #asserts
-                #bits_trait::with_bits::<0, #storage_ty_bits>(storage_value, field_value)
+                #bits_trait::with_bits::<0, {#storage_ty_bits}>(storage_value, field_value)
             }}
         }
     }
@@ -530,7 +526,7 @@ pub fn set_bits(input: TokenStream) -> TokenStream {
             quote! {{
                 let storage_value = &mut #storage_value;
                 #asserts
-                ::proc_bitfield::SetBit::set_bit::<#bit>(storage_value, #field_value);
+                ::proc_bitfield::SetBit::set_bit::<{#bit}>(storage_value, #field_value);
             }}
         }
         BitsSpan::Range { start, end } => {
@@ -538,7 +534,7 @@ pub fn set_bits(input: TokenStream) -> TokenStream {
                 let storage_value = &mut #storage_value;
                 let field_value = #field_value;
                 #asserts
-                #bits_trait::set_bits::<#start, #end>(storage_value, field_value);
+                #bits_trait::set_bits::<{#start}, {#end}>(storage_value, field_value);
             }}
         }
         BitsSpan::Full => {
@@ -554,7 +550,7 @@ pub fn set_bits(input: TokenStream) -> TokenStream {
                 let storage_value = &mut #storage_value;
                 let field_value = #field_value;
                 #asserts
-                #bits_trait::set_bits::<0, #storage_ty_bits>(storage_value, field_value);
+                #bits_trait::set_bits::<0, {#storage_ty_bits}>(storage_value, field_value);
             }}
         }
     }
