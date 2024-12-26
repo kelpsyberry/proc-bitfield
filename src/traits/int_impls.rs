@@ -59,17 +59,27 @@ macro_rules! impl_bit_for_int_type {
             fn with_bit<const BIT: usize>(mut self, value: bool) -> Self {
                 $(
                     #[cfg(all(feature = "aarch64-bit-fix", target_arch = "aarch64"))]
-                    if !core::intrinsics::is_val_statically_known(value) {
-                        unsafe {
-                            core::arch::asm!(
-                                $aarch64_asm,
-                                self = inlateout(reg) self,
-                                value = in(reg) value as u8,
-                                BIT = const BIT,
-                                options(pure, nomem, nostack, preserves_flags)
-                            );
+                    {
+                        use core::intrinsics::is_val_statically_known;
+                        let prev_value = self & 1 << BIT != 0;
+                        let is_same = value == prev_value;
+                        let is_opposite = value == !prev_value;
+                        if !(
+                            is_val_statically_known(value)
+                            || (is_val_statically_known(is_same) && is_same)
+                            || (is_val_statically_known(is_opposite) && is_opposite)
+                        ) {
+                            unsafe {
+                                core::arch::asm!(
+                                    $aarch64_asm,
+                                    self = inlateout(reg) self,
+                                    value = in(reg) value as u8,
+                                    BIT = const BIT,
+                                    options(pure, nomem, nostack, preserves_flags)
+                                );
+                            }
+                            return self;
                         }
-                        return self;
                     }
                 )*
                 (self & !(1 << BIT)) | (value as $t) << BIT
