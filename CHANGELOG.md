@@ -1,6 +1,9 @@
+## 0.5.2
+- Added the ability to specify field ranges using arbitrary expressions in addition to literals, by enclosing the expressions in parens (`(<expr>)`)
+- Reverted the fix from v0.5.1 due to it hindering other optimizations and the original issue only triggering in extremely specific cases
+
 ## 0.5.1
 - Fixed a missed LLVM optimization for single-bit writes to bitfields on AArch64 by using inline assembly; this requires both a nightly compiler and for the `aarch64-bit-fix` feature flag to be enabled (to prevent breakage due to `unsafe` usage)
-- Added the ability to specify field ranges using arbitrary expressions in addition to literals, by enclosing the expressions in parens (`(<expr>)`)
 
 ## 0.5.0
 - **BREAKING**: Renamed `FromRaw`, `IntoRaw` and `DerefRaw` to `FromStorage`, `IntoStorage` and `DerefStorage`
