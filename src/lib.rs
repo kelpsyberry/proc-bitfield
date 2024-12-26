@@ -1,9 +1,4 @@
 #![doc = include_str!("../docs.md")]
-#![cfg_attr(
-    feature = "aarch64-bit-fix",
-    feature(core_intrinsics),
-    allow(internal_features)
-)]
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(all(doc, feature = "nightly"), feature(doc_cfg))]
 #![cfg_attr(all(any(doc, test), feature = "nightly"), feature(trivial_bounds))]

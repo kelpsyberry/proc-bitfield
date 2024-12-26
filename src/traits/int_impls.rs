@@ -45,7 +45,7 @@ impl_bits_for_int_types!(
 );
 
 macro_rules! impl_bit_for_int_type {
-    ($t: ty $(; $aarch64_asm: literal)?) => {
+    ($t: ty) => {
         impl Bit for $t {
             #[inline]
             fn bit<const BIT: usize>(&self) -> bool {
@@ -55,33 +55,7 @@ macro_rules! impl_bit_for_int_type {
 
         impl WithBit for $t {
             #[inline]
-            #[allow(unused_mut)]
-            fn with_bit<const BIT: usize>(mut self, value: bool) -> Self {
-                $(
-                    #[cfg(all(feature = "aarch64-bit-fix", target_arch = "aarch64"))]
-                    {
-                        use core::intrinsics::is_val_statically_known;
-                        let prev_value = self & 1 << BIT != 0;
-                        let is_same = value == prev_value;
-                        let is_opposite = value == !prev_value;
-                        if !(
-                            is_val_statically_known(value)
-                            || (is_val_statically_known(is_same) && is_same)
-                            || (is_val_statically_known(is_opposite) && is_opposite)
-                        ) {
-                            unsafe {
-                                core::arch::asm!(
-                                    $aarch64_asm,
-                                    self = inlateout(reg) self,
-                                    value = in(reg) value as u8,
-                                    BIT = const BIT,
-                                    options(pure, nomem, nostack, preserves_flags)
-                                );
-                            }
-                            return self;
-                        }
-                    }
-                )*
+            fn with_bit<const BIT: usize>(self, value: bool) -> Self {
                 (self & !(1 << BIT)) | (value as $t) << BIT
             }
         }
@@ -96,21 +70,9 @@ macro_rules! impl_bit_for_int_type {
 }
 
 macro_rules! impl_bit_for_int_types {
-    ($(($($t: ty),* $(; $aarch64_asm: literal)?)),*) => {
-        $(
-            impl_bit_for_int_types!($($t),* $(; $aarch64_asm)*);
-        )*
-    };
-    ($($t: ty),*; $aarch64_asm: literal) => {
-        $(impl_bit_for_int_type!($t; $aarch64_asm);)*
-    };
     ($($t: ty),*) => {
         $(impl_bit_for_int_type!($t);)*
     };
 }
 
-impl_bit_for_int_types!(
-    (u8, u16, u32, i8, i16, i32; "bfi {self:w}, {value:w}, {BIT}, #1"),
-    (u64, i64, usize, isize; "bfi {self:x}, {value:x}, {BIT}, #1"),
-    (u128, i128)
-);
+impl_bit_for_int_types!(u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize);
