@@ -15,8 +15,8 @@ where
     _parent: PhantomData<&'a T>,
 }
 
-impl<'a, T: Bitfield, U: Bitfield, const START: usize, const END: usize> fmt::Debug
-    for NestedRef<'a, T, U, START, END>
+impl<T: Bitfield, U: Bitfield, const START: usize, const END: usize> fmt::Debug
+    for NestedRef<'_, T, U, START, END>
 where
     T::Storage: Bits<U::Storage>,
     U: fmt::Debug,
@@ -41,8 +41,8 @@ where
     }
 }
 
-impl<'a, T: Bitfield, U: Bitfield, const START: usize, const END: usize> Deref
-    for NestedRef<'a, T, U, START, END>
+impl<T: Bitfield, U: Bitfield, const START: usize, const END: usize> Deref
+    for NestedRef<'_, T, U, START, END>
 where
     T::Storage: Bits<U::Storage>,
 {
@@ -78,8 +78,8 @@ where
     }
 }
 
-impl<'a, T: Bitfield, U: Bitfield, const START: usize, const END: usize> Deref
-    for NestedRefMut<'a, T, U, START, END>
+impl<T: Bitfield, U: Bitfield, const START: usize, const END: usize> Deref
+    for NestedRefMut<'_, T, U, START, END>
 where
     T::Storage: Bits<U::Storage> + SetBits<U::Storage>,
     U::Storage: Clone,
@@ -92,8 +92,8 @@ where
     }
 }
 
-impl<'a, T: Bitfield, U: Bitfield, const START: usize, const END: usize> DerefMut
-    for NestedRefMut<'a, T, U, START, END>
+impl<T: Bitfield, U: Bitfield, const START: usize, const END: usize> DerefMut
+    for NestedRefMut<'_, T, U, START, END>
 where
     T::Storage: Bits<U::Storage> + SetBits<U::Storage>,
     U::Storage: Clone,
@@ -104,8 +104,8 @@ where
     }
 }
 
-impl<'a, T: Bitfield, U: Bitfield, const START: usize, const END: usize> Drop
-    for NestedRefMut<'a, T, U, START, END>
+impl<T: Bitfield, U: Bitfield, const START: usize, const END: usize> Drop
+    for NestedRefMut<'_, T, U, START, END>
 where
     T::Storage: Bits<U::Storage> + SetBits<U::Storage>,
     U::Storage: Clone,
