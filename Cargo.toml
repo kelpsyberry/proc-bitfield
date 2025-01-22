@@ -16,6 +16,7 @@ features = ["nightly"]
 
 [features]
 nightly = ["macros/nightly"]
+gce = ["nightly", "macros/gce"]
 
 [dependencies]
 macros = { package = "proc-bitfield-macros", path = "macros", version = "0.5.2" }

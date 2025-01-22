@@ -12,6 +12,7 @@ proc-macro = true
 
 [features]
 nightly = []
+gce = ["nightly"]
 
 [dependencies]
 syn = { version = "2.0", features = ["full", "parsing"] }

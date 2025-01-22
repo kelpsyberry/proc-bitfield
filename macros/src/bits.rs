@@ -201,10 +201,21 @@ impl BitsSpan {
         Cow<'_, proc_macro2::TokenStream>,
     )> {
         match self {
-            BitsSpan::Range { start, end } => Some((Cow::Borrowed(start), Cow::Borrowed(end))),
             BitsSpan::Single(bit) => Some((Cow::Borrowed(bit), Cow::Owned(quote! { (#bit) + 1 }))),
+            BitsSpan::Range { start, end } => Some((Cow::Borrowed(start), Cow::Borrowed(end))),
             _ => None,
         }
+    }
+
+    pub fn to_start_end_or_full<'a>(
+        &'a self,
+        full_bits: &'a proc_macro2::TokenStream,
+    ) -> (
+        Cow<'a, proc_macro2::TokenStream>,
+        Cow<'a, proc_macro2::TokenStream>,
+    ) {
+        self.to_start_end()
+            .unwrap_or_else(|| (Cow::Owned(quote! { 0 }), Cow::Borrowed(full_bits)))
     }
 }
 

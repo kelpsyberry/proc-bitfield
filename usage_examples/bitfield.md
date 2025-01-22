@@ -4,6 +4,7 @@
 ([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.BitRanges.html))
 
 ```rust
+# #![cfg_attr(feature = "gce", feature(generic_const_exprs), allow(incomplete_features))]
 # use proc_bitfield::bitfield;
 bitfield! {
     /// A bitfield showcasing how to specify bit ranges.
@@ -57,6 +58,7 @@ bitfield! {
 ([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.AccessRestrictions.html))
 
 ```rust
+# #![cfg_attr(feature = "gce", feature(generic_const_exprs), allow(incomplete_features))]
 # use proc_bitfield::bitfield;
 bitfield! {
     /// A bitfield showcasing how to specify access restrictions.
@@ -85,6 +87,7 @@ bitfield! {
 ([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.NestedBitfields.html))
 
 ```rust
+# #![cfg_attr(feature = "gce", feature(generic_const_exprs), allow(incomplete_features))]
 # use proc_bitfield::bitfield;
 # 
 # bitfield! { struct AccessRestrictions(pub u8): Debug {} }
@@ -119,6 +122,7 @@ bitfield! {
 ([Generated type docs](https://docs.rs/proc-bitfield/latest/proc_bitfield/example/struct.FieldTypeConversions.html))
 
 ```rust,ignore
+# #![cfg_attr(feature = "gce", feature(generic_const_exprs), allow(incomplete_features))]
 # use proc_bitfield::bitfield;
 # use proc_bitfield::example::support::*;
 

@@ -1,9 +1,17 @@
-use quote::format_ident;
-use quote::quote;
+use std::cell::Cell;
+
+#[cfg(feature = "gce")]
+use proc_macro2::Span;
+use quote::{format_ident, quote};
 use syn::{
     parenthesized,
     parse::{ParseBuffer, ParseStream},
     Ident, Result,
+};
+#[cfg(feature = "gce")]
+use syn::{
+    AttrStyle, Attribute, ConstParam, Expr, MacroDelimiter, MetaList, Type, TypeParam,
+    TypeParamBound, WherePredicate,
 };
 
 pub fn for_all_int_types(mut f: impl FnMut(u8, bool, Ident)) {
@@ -28,4 +36,85 @@ pub fn maybe_const_assert(is_const: bool) -> proc_macro2::TokenStream {
     } else {
         quote! { ::core::assert! }
     }
+}
+
+#[cfg(feature = "gce")]
+pub fn type_param(
+    ident: Ident,
+    bounds: impl IntoIterator<Item = TypeParamBound>,
+    default: Option<Type>,
+) -> TypeParam {
+    TypeParam {
+        attrs: Vec::new(),
+        ident,
+        colon_token: Default::default(),
+        bounds: bounds.into_iter().collect(),
+        eq_token: Default::default(),
+        default,
+    }
+}
+
+#[cfg(feature = "gce")]
+pub fn const_param(ident: Ident, ty: Type, default: Option<Expr>) -> ConstParam {
+    ConstParam {
+        attrs: Vec::new(),
+        const_token: Default::default(),
+        ident,
+        colon_token: Default::default(),
+        ty,
+        eq_token: Default::default(),
+        default,
+    }
+}
+
+pub struct MaybeRepeat {
+    content: proc_macro2::TokenStream,
+    was_consumed: Cell<bool>,
+    after_first: Option<proc_macro2::TokenStream>,
+}
+
+impl MaybeRepeat {
+    pub fn new(content: proc_macro2::TokenStream, should_repeat: bool) -> Self {
+        MaybeRepeat {
+            content,
+            was_consumed: Cell::new(false),
+            after_first: should_repeat.then(Default::default),
+        }
+    }
+
+    pub fn get(&self) -> &proc_macro2::TokenStream {
+        if let Some(after_first) = &self.after_first {
+            if self.was_consumed.replace(true) {
+                return after_first;
+            }
+        }
+        &self.content
+    }
+}
+
+#[cfg(feature = "gce")]
+pub fn doc_hidden() -> Attribute {
+    Attribute {
+        pound_token: Default::default(),
+        style: AttrStyle::Outer,
+        bracket_token: Default::default(),
+        meta: MetaList {
+            path: Ident::new("doc", Span::call_site()).into(),
+            delimiter: MacroDelimiter::Paren(Default::default()),
+            tokens: quote! { hidden },
+        }
+        .into(),
+    }
+}
+
+#[cfg(feature = "gce")]
+pub fn min(a: &proc_macro2::TokenStream, b: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    quote! {
+        ::proc_bitfield::__private::min((#a), (#b))
+    }
+}
+
+#[cfg(feature = "gce")]
+pub fn sized_pred(value: &proc_macro2::TokenStream) -> WherePredicate {
+    syn::parse(quote! { [(); {#value}]: Sized }.into()).unwrap()
 }

@@ -3,12 +3,16 @@ mod int_impls;
 
 pub trait Bitfield {
     type Storage;
+}
 
-    fn from_storage(storage: Self::Storage) -> Self;
-    fn into_storage(self) -> Self::Storage;
+#[cfg(feature = "gce")]
+pub trait NestableBitfield<S, const START: usize, const END: usize> {
+    type Nested<'a>: crate::__private::NestedBitfield<'a, S> where S: 'a;
+}
 
-    fn storage(&self) -> &Self::Storage;
-    fn storage_mut(&mut self) -> &mut Self::Storage;
+#[cfg(feature = "gce")]
+pub trait NestableMutBitfield<S, const START: usize, const END: usize> {
+    type NestedMut<'a>: crate::__private::NestedMutBitfield<'a, S> where S: 'a;
 }
 
 /// Read a range of bits inside a value.

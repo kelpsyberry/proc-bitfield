@@ -1,16 +1,27 @@
+#[cfg(feature = "gce")]
+use crate::utils::{const_param, doc_hidden, min, sized_pred, type_param};
 use crate::{
     bits::{Bits, BitsSpan},
-    utils::{maybe_const_assert, parse_parens},
+    utils::{maybe_const_assert, parse_parens, MaybeRepeat},
 };
 use proc_macro::TokenStream;
+#[cfg(feature = "gce")]
+use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
-use std::mem::replace;
+#[cfg(feature = "gce")]
+use std::borrow::Cow;
 use syn::{
     braced, bracketed, parenthesized,
     parse::{Parse, ParseStream, Result},
     punctuated::Punctuated,
     spanned::Spanned,
-    token, Attribute, Error, Expr, ExprParen, ExprPath, Generics, Ident, Token, Type, Visibility,
+    token, Attribute, Error, Expr, ExprParen, ExprPath, Generics, Ident, Token, Type, TypeParam,
+    Visibility, WhereClause,
+};
+#[cfg(feature = "gce")]
+use syn::{
+    Lifetime, LifetimeParam, Path, PathArguments, PathSegment, TraitBound, TraitBoundModifier,
+    TypePath, TypeReference,
 };
 
 mod kw {
@@ -149,6 +160,716 @@ impl Field {
             FieldContent::Nested(_) => false,
         }
     }
+
+    fn asserts(
+        &self,
+        bits_span: &BitsSpan,
+        full_bits: &proc_macro2::TokenStream,
+        full_bits_are_const: bool,
+    ) -> MaybeRepeat {
+        let Field { ident, ty, .. } = self;
+
+        let ty_bits = quote! { ::core::mem::size_of::<#ty>() << 3 };
+
+        let assert = maybe_const_assert(full_bits_are_const);
+        MaybeRepeat::new(
+            match &bits_span {
+                BitsSpan::Single(bit) => {
+                    quote_spanned! {
+                        ident.span() =>
+                        #assert((#bit) < (#full_bits));
+                    }
+                }
+                BitsSpan::Range { start, end } => {
+                    quote_spanned! {
+                        ident.span() =>
+                        #assert((#end) > (#start));
+                        #assert((#start) < (#full_bits) && (#end) <= (#full_bits));
+                        #assert((#end) - (#start) <= (#ty_bits));
+                    }
+                }
+                BitsSpan::Full => {
+                    quote_spanned! {
+                        ident.span() =>
+                        #assert((#full_bits) <= (#ty_bits));
+                    }
+                }
+            },
+            full_bits_are_const,
+        )
+    }
+
+    #[cfg(feature = "gce")]
+    fn add_sized_preds(
+        bits_span: &BitsSpan,
+        full_bits: &proc_macro2::TokenStream,
+        start_bit: &proc_macro2::TokenStream,
+        end_bit: &proc_macro2::TokenStream,
+        clause: &mut WhereClause,
+    ) {
+        match bits_span {
+            BitsSpan::Single(bit) => {
+                let bit = quote! { (#start_bit) + (#bit) };
+                clause.predicates.push(sized_pred(&bit));
+            }
+            BitsSpan::Range { start, end } => {
+                let start = quote! { (#start_bit) + (#start) };
+                let end = min(&quote! { (#start_bit) + (#end) }, end_bit);
+                clause.predicates.push(sized_pred(&start));
+                clause.predicates.push(sized_pred(&end));
+            }
+            BitsSpan::Full => {
+                let end = min(&quote! { (#start_bit) + (#full_bits) }, end_bit);
+                clause.predicates.push(sized_pred(&end));
+            }
+        }
+    }
+
+    fn getters(
+        &self,
+        bits_span: &BitsSpan,
+        asserts: &MaybeRepeat,
+        storage: &proc_macro2::TokenStream,
+        storage_ty: &Type,
+        full_bits: &proc_macro2::TokenStream,
+        start_end_bits: Option<(&proc_macro2::TokenStream, &proc_macro2::TokenStream)>,
+    ) -> Option<proc_macro2::TokenStream> {
+        let Field {
+            attrs,
+            vis,
+            ident,
+            ty: field_ty,
+            content,
+            ..
+        } = self;
+
+        #[allow(unused_mut)]
+        let mut where_clause = WhereClause {
+            where_token: Default::default(),
+            predicates: Default::default(),
+        };
+        #[cfg(feature = "gce")]
+        if let Some((start_bit, end_bit)) = start_end_bits {
+            Self::add_sized_preds(bits_span, full_bits, start_bit, end_bit, &mut where_clause);
+        }
+
+        match content {
+            FieldContent::Single(SingleField { get_kind, .. }) => {
+                if matches!(&get_kind, AccessorKind::Disabled) {
+                    return None;
+                }
+
+                let (output, output_ty) = match get_kind {
+                    AccessorKind::Default => (quote! { raw_value }, field_ty.to_token_stream()),
+
+                    AccessorKind::ConvTy(ty) => (
+                        quote! {
+                            <#ty as ::core::convert::From<#field_ty>>::from(raw_value)
+                        },
+                        ty.to_token_stream(),
+                    ),
+                    AccessorKind::UnsafeConvTy {
+                        ty,
+                        has_safe_accessor,
+                    } => {
+                        let unsafe_ = has_safe_accessor.then(|| quote! { unsafe }).into_iter();
+                        (
+                            quote! {
+                                #(#unsafe_)* {
+                                    <
+                                        #ty as ::proc_bitfield::UnsafeFrom<#field_ty>
+                                    >::unsafe_from(raw_value)
+                                }
+                            },
+                            ty.to_token_stream(),
+                        )
+                    }
+                    AccessorKind::TryConvTy(ty) => (
+                        quote! {
+                            <
+                                #ty as ::core::convert::TryFrom<#field_ty>
+                            >::try_from(raw_value)
+                        },
+                        quote! {
+                            ::core::result::Result<
+                                #ty,
+                                <#ty as ::core::convert::TryFrom<#field_ty>>::Error,
+                            >
+                        },
+                    ),
+                    AccessorKind::UnwrapConvTy(ty) => (
+                        quote! {
+                            <
+                                #ty as ::core::convert::TryFrom<#field_ty>
+                            >::try_from(raw_value).unwrap()
+                        },
+                        ty.to_token_stream(),
+                    ),
+
+                    AccessorKind::ConvFn { fn_, ty } => {
+                        (quote! { #fn_(raw_value) }, ty.to_token_stream())
+                    }
+                    AccessorKind::UnsafeConvFn {
+                        fn_,
+                        ty,
+                        has_safe_accessor,
+                    } => {
+                        let unsafe_ = has_safe_accessor.then(|| quote! { unsafe }).into_iter();
+                        (
+                            quote! { #(#unsafe_)* { #fn_(raw_value) } },
+                            ty.to_token_stream(),
+                        )
+                    }
+                    AccessorKind::TryGetFn { fn_, result_ty } => {
+                        (quote! { #fn_(raw_value) }, result_ty.to_token_stream())
+                    }
+                    AccessorKind::UnwrapConvFn { fn_, ty } => {
+                        (quote! { #fn_(raw_value).unwrap() }, ty.to_token_stream())
+                    }
+
+                    AccessorKind::TrySetFn { .. } | AccessorKind::Disabled => unreachable!(),
+                };
+
+                let get_raw_value = if let Some((_start_bit, _end_bit)) = start_end_bits {
+                    #[cfg(feature = "gce")]
+                    match bits_span {
+                        BitsSpan::Single(bit) => {
+                            let bit = quote! { (#_start_bit) + (#bit) };
+                            quote_spanned! {
+                                ident.span() =>
+                                if (#bit) < (#_end_bit) {
+                                    <#storage_ty as ::proc_bitfield::Bit>::bit::<{#bit}>(&#storage)
+                                } else {
+                                    false
+                                }
+                            }
+                        }
+                        BitsSpan::Range { start, end } => {
+                            let start = quote! { (#_start_bit) + (#start) };
+                            let end = min(&quote! { (#_start_bit) + (#end) }, _end_bit);
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
+                                    ::bits::<{#start}, {#end}>(&#storage)
+                            }
+                        }
+                        BitsSpan::Full => {
+                            let end = min(&quote! { (#_start_bit) + (#full_bits) }, _end_bit);
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
+                                    ::bits::<{#_start_bit}, {#end}>(&#storage)
+                            }
+                        }
+                    }
+                    #[cfg(not(feature = "gce"))]
+                    unreachable!()
+                } else {
+                    match bits_span {
+                        BitsSpan::Single(bit) => {
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::Bit>::bit::<{#bit}>(&#storage)
+                            }
+                        }
+                        BitsSpan::Range { start, end } => {
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
+                                    ::bits::<{#start}, {#end}>(&#storage)
+                            }
+                        }
+                        BitsSpan::Full => {
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
+                                    ::bits::<0, {#full_bits}>(&#storage)
+                            }
+                        }
+                    }
+                };
+
+                let unsafe_ = get_kind.is_unsafe().then(|| quote! { unsafe }).into_iter();
+                let asserts = asserts.get();
+                Some(quote! {
+                    #(#attrs)*
+                    #[inline]
+                    #[allow(clippy::identity_op)]
+                    #[allow(unused_braces)]
+                    #vis #(#unsafe_)* fn #ident(&self) -> #output_ty #where_clause {
+                        #asserts
+                        let raw_value = #get_raw_value;
+                        #output
+                    }
+                })
+            }
+
+            FieldContent::Nested(NestedField { is_readable, .. }) => {
+                if !*is_readable {
+                    return None;
+                }
+
+                let (start, end) = bits_span.to_start_end_or_full(full_bits);
+                #[cfg(feature = "gce")]
+                let (start, end) = if let Some((start_bit, end_bit)) = start_end_bits {
+                    let start = quote! { (#start_bit) + (#start) };
+                    let end = min(&quote! { (#start_bit) + (#end) }, end_bit);
+                    (Cow::Owned(start), Cow::Owned(end))
+                } else {
+                    (start, end)
+                };
+
+                #[cfg(feature = "gce")]
+                let ref_getter = {
+                    let mut where_clause = where_clause.clone();
+                    where_clause.predicates.push(
+                        syn::parse(
+                            quote! {
+                                #field_ty: ::proc_bitfield::NestableBitfield<
+                                    #storage_ty, {#start}, {#end}
+                                >
+                            }
+                            .into(),
+                        )
+                        .unwrap(),
+                    );
+
+                    let ref_fn_ident = format_ident!("{}_ref", ident);
+                    let asserts = asserts.get();
+                    quote! {
+                        #(#attrs)*
+                        #[inline]
+                        #[allow(clippy::identity_op)]
+                        #[allow(unused_braces)]
+                        #vis fn #ref_fn_ident(&'_ self)
+                            -> <#field_ty as ::proc_bitfield::NestableBitfield<
+                                #storage_ty, {#start}, {#end}
+                            >>::Nested<'_> #where_clause {
+                            #asserts
+                            ::proc_bitfield::__private::NestedBitfield::__from_storage(&#storage)
+                        }
+                    }
+                };
+                #[cfg(not(feature = "gce"))]
+                let ref_getter = quote! {};
+
+                let asserts = asserts.get();
+                Some(quote! {
+                    #ref_getter
+
+                    #(#attrs)*
+                    #[inline]
+                    #[allow(clippy::identity_op)]
+                    #[allow(unused_braces)]
+                    #vis fn #ident(&self) -> #field_ty #where_clause {
+                        #asserts
+                        let raw_value = <#storage_ty as ::proc_bitfield::Bits<
+                                <#field_ty as ::proc_bitfield::Bitfield>::Storage
+                            >>::bits::<{#start}, {#end}>(&#storage);
+                        <#field_ty>::__from_storage(raw_value)
+                    }
+
+
+                })
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn setters(
+        &self,
+        bits_span: &BitsSpan,
+        asserts: &MaybeRepeat,
+        storage: &proc_macro2::TokenStream,
+        storage_ty: &Type,
+        full_bits: &proc_macro2::TokenStream,
+        start_end_bits: Option<(&proc_macro2::TokenStream, &proc_macro2::TokenStream)>,
+        allows_with: bool,
+    ) -> Option<proc_macro2::TokenStream> {
+        let Field {
+            attrs,
+            vis,
+            ident,
+            ty: field_ty,
+            content,
+            ..
+        } = self;
+
+        #[allow(unused_mut)]
+        let mut where_clause = WhereClause {
+            where_token: Default::default(),
+            predicates: Default::default(),
+        };
+        #[cfg(feature = "gce")]
+        if let Some((start_bit, end_bit)) = start_end_bits {
+            Self::add_sized_preds(bits_span, full_bits, start_bit, end_bit, &mut where_clause);
+        }
+
+        match content {
+            FieldContent::Single(SingleField { set_kind, .. }) => {
+                if matches!(&set_kind, AccessorKind::Disabled) {
+                    return None;
+                }
+
+                let set_fn_ident = format_ident!("set_{}", ident);
+                let with_fn_ident = format_ident!("with_{}", ident);
+
+                let (input_ty, raw_value, set_ok, set_output_ty, with_ok, with_output_ty) =
+                    match set_kind {
+                        AccessorKind::Default => (
+                            field_ty,
+                            quote! { value },
+                            quote! {},
+                            quote! { () },
+                            quote! { result },
+                            quote! { Self },
+                        ),
+
+                        AccessorKind::ConvTy(ty) => (
+                            ty,
+                            quote! { <#ty as ::core::convert::Into<#field_ty>>::into(value) },
+                            quote! {},
+                            quote! { () },
+                            quote! { result },
+                            quote! { Self },
+                        ),
+                        AccessorKind::UnsafeConvTy {
+                            ty,
+                            has_safe_accessor,
+                        } => {
+                            let unsafe_ = has_safe_accessor.then(|| quote! { unsafe }).into_iter();
+                            (
+                                ty,
+                                quote! {
+                                    #(#unsafe_)* {
+                                        <
+                                            #ty as ::proc_bitfield::UnsafeInto<#field_ty>
+                                        >::unsafe_into(value)
+                                    }
+                                },
+                                quote! {},
+                                quote! { () },
+                                quote! { result },
+                                quote! { Self },
+                            )
+                        }
+                        AccessorKind::TryConvTy(ty) => (
+                            ty,
+                            quote! {
+                                <#ty as ::core::convert::TryInto<#field_ty>>::try_into(value)?
+                            },
+                            quote! { ::core::result::Result::Ok(()) },
+                            quote! {
+                                ::core::result::Result<
+                                    (),
+                                    <#ty as ::core::convert::TryInto<#field_ty>>::Error
+                                >
+                            },
+                            quote! { ::core::result::Result::Ok(result) },
+                            quote! {
+                                ::core::result::Result<
+                                    Self,
+                                    <#ty as ::core::convert::TryInto<#field_ty>>::Error
+                                >
+                            },
+                        ),
+                        AccessorKind::UnwrapConvTy(ty) => (
+                            ty,
+                            quote! {
+                                <#ty as ::core::convert::TryInto<#field_ty>>::try_into(value)
+                                    .unwrap()
+                            },
+                            quote! {},
+                            quote! { () },
+                            quote! { result },
+                            quote! { Self },
+                        ),
+
+                        AccessorKind::ConvFn { fn_, ty } => (
+                            ty,
+                            quote! { #fn_(value) },
+                            quote! {},
+                            quote! { () },
+                            quote! { result },
+                            quote! { Self },
+                        ),
+                        AccessorKind::UnsafeConvFn {
+                            fn_,
+                            ty,
+                            has_safe_accessor,
+                        } => {
+                            let unsafe_ = has_safe_accessor.then(|| quote! { unsafe }).into_iter();
+                            (
+                                ty,
+                                quote! { #(#unsafe_)* { #fn_(value) } },
+                                quote! {},
+                                quote! { () },
+                                quote! { result },
+                                quote! { Self },
+                            )
+                        }
+                        AccessorKind::TrySetFn {
+                            fn_,
+                            input_ty,
+                            result_ty,
+                        } => (
+                            input_ty,
+                            quote! { #fn_(value)? },
+                            quote! {
+                                <
+                                    #result_ty as ::proc_bitfield::Try
+                                >::WithOutput::<()>::from_output(())
+                            },
+                            quote! { <#result_ty as ::proc_bitfield::Try>::WithOutput<()> },
+                            quote! {
+                                <
+                                    #result_ty as ::proc_bitfield::Try
+                                >::WithOutput::<Self>::from_output(result)
+                            },
+                            quote! {
+                                <#result_ty as ::proc_bitfield::Try>::WithOutput<Self>
+                            },
+                        ),
+                        AccessorKind::UnwrapConvFn { fn_, ty } => (
+                            ty,
+                            quote! { #fn_(value).unwrap() },
+                            quote! {},
+                            quote! { () },
+                            quote! { result },
+                            quote! { Self },
+                        ),
+
+                        AccessorKind::TryGetFn { .. } | AccessorKind::Disabled => unreachable!(),
+                    };
+
+                let (with_raw_value, set_raw_value) = if let Some((_start_bit, _end_bit)) =
+                    start_end_bits
+                {
+                    #[cfg(feature = "gce")]
+                    match bits_span {
+                        BitsSpan::Single(bit) => (
+                            quote_spanned! {
+                                ident.span() =>
+                                if (#_start_bit) + (#bit) < (#_end_bit) {
+                                    <#storage_ty as ::proc_bitfield::WithBit>
+                                        ::with_bit::<{#bit}>(#storage, #raw_value)
+                                } else {
+                                    #storage
+                                }
+                            },
+                            quote_spanned! {
+                                ident.span() =>
+                                if (#_start_bit) + (#bit) < (#_end_bit) {
+                                    <#storage_ty as ::proc_bitfield::SetBit>
+                                        ::set_bit::<{#bit}>(&mut #storage, #raw_value)
+                                }
+                            },
+                        ),
+                        BitsSpan::Range { start, end } => {
+                            let start = quote! { (#_start_bit) + (#start) };
+                            let end = min(&quote! { (#_start_bit) + (#end) }, _end_bit);
+                            (
+                                quote_spanned! {
+                                    ident.span() =>
+                                    <#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
+                                        ::with_bits::<{#start}, {#end}>(#storage, #raw_value)
+                                },
+                                quote_spanned! {
+                                    ident.span() =>
+                                    <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
+                                        ::set_bits::<{#start}, {#end}>(&mut #storage, #raw_value)
+                                },
+                            )
+                        }
+                        BitsSpan::Full => {
+                            let end = min(&quote! { (#_start_bit) + (#full_bits) }, _end_bit);
+                            (
+                                quote_spanned! {
+                                    ident.span() =>
+                                    <#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
+                                        ::with_bits::<0, {#end}>(#storage, #raw_value)
+                                },
+                                quote_spanned! {
+                                    ident.span() =>
+                                    <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
+                                        ::set_bits::<{#_start_bit}, {#end}>(
+                                            &mut #storage,
+                                            #raw_value,
+                                        )
+                                },
+                            )
+                        }
+                    }
+                    #[cfg(not(feature = "gce"))]
+                    unreachable!()
+                } else {
+                    match bits_span {
+                        BitsSpan::Single(bit) => (
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::WithBit>
+                                    ::with_bit::<{#bit}>(#storage, #raw_value)
+                            },
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::SetBit>
+                                    ::set_bit::<{#bit}>(&mut #storage, #raw_value)
+                            },
+                        ),
+                        BitsSpan::Range { start, end } => (
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
+                                    ::with_bits::<{#start}, {#end}>(#storage, #raw_value)
+                            },
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
+                                    ::set_bits::<{#start}, {#end}>(&mut #storage, #raw_value)
+                            },
+                        ),
+                        BitsSpan::Full => (
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
+                                    ::with_bits::<0, {#full_bits}>(#storage, #raw_value)
+                            },
+                            quote_spanned! {
+                                ident.span() =>
+                                <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
+                                    ::set_bits::<0, {#full_bits}>(&mut #storage, #raw_value)
+                            },
+                        ),
+                    }
+                };
+
+                let modifier = allows_with.then(|| {
+                    let unsafe_ = set_kind.is_unsafe().then(|| quote! { unsafe });
+                    let asserts = asserts.get();
+                    quote! {
+                        #(#attrs)*
+                        #[inline]
+                        #[must_use]
+                        #[allow(clippy::identity_op)]
+                        #[allow(unused_braces)]
+                        #vis #unsafe_ fn #with_fn_ident(self, value: #input_ty)
+                            -> #with_output_ty #where_clause
+                        {
+                            #asserts
+                            let result = Self::__from_storage(#with_raw_value);
+                            #with_ok
+                        }
+                    }
+                });
+
+                let unsafe_ = set_kind.is_unsafe().then(|| quote! { unsafe });
+                let asserts = asserts.get();
+                Some(quote! {
+                    #modifier
+
+                    #(#attrs)*
+                    #[inline]
+                    #[allow(clippy::identity_op)]
+                    #[allow(unused_braces)]
+                    #vis #unsafe_ fn #set_fn_ident(&mut self, value: #input_ty) -> #set_output_ty
+                        #where_clause
+                    {
+                        #asserts
+                        #set_raw_value;
+                        #set_ok
+                    }
+                })
+            }
+
+            FieldContent::Nested(NestedField {
+                is_readable: _is_readable,
+                is_writable,
+            }) => {
+                if !*is_writable {
+                    return None;
+                }
+
+                let (start, end) = bits_span.to_start_end_or_full(full_bits);
+
+                let set_fn_ident = format_ident!("set_{}", ident);
+                let with_fn_ident = format_ident!("with_{}", ident);
+
+                #[cfg(feature = "gce")]
+                let mut_getter = _is_readable.then(|| {
+                    let mut where_clause = where_clause.clone();
+                    where_clause.predicates.push(
+                        syn::parse(
+                            quote! {
+                                #field_ty: ::proc_bitfield::NestableMutBitfield<
+                                    #storage_ty, {#start}, {#end}
+                                >
+                            }
+                            .into(),
+                        )
+                        .unwrap(),
+                    );
+
+                    let mut_fn_ident = format_ident!("{}_mut", ident);
+                    let asserts = asserts.get();
+                    quote! {
+                        #(#attrs)*
+                        #[inline]
+                        #[allow(clippy::identity_op)]
+                        #[allow(unused_braces)]
+                        #vis fn #mut_fn_ident(&'_ mut self)
+                            -> <#field_ty as ::proc_bitfield::NestableMutBitfield<
+                                #storage_ty, {#start}, {#end}
+                            >>::NestedMut<'_> #where_clause
+                        {
+                            #asserts
+                            ::proc_bitfield::__private::NestedMutBitfield::__from_storage(
+                                &mut #storage,
+                            )
+                        }
+                    }
+                });
+                #[cfg(not(feature = "gce"))]
+                let mut_getter = quote! {};
+
+                let modifier = allows_with.then(|| {
+                    let asserts = asserts.get();
+                    quote! {
+                        #(#attrs)*
+                        #[inline]
+                        #[must_use]
+                        #[allow(clippy::identity_op)]
+                        #[allow(unused_braces)]
+                        #vis fn #with_fn_ident(self, value: #field_ty) -> Self #where_clause {
+                            #asserts
+                            Self::__from_storage(
+                                <#storage_ty as ::proc_bitfield::WithBits<
+                                    <#field_ty as ::proc_bitfield::Bitfield>::Storage>
+                                >::with_bits::<{#start}, {#end}>(#storage, value.0),
+                            )
+                        }
+                    }
+                });
+
+                let asserts = asserts.get();
+                Some(quote! {
+                    #mut_getter
+
+                    #modifier
+
+                    #(#attrs)*
+                    #[inline]
+                    #[allow(clippy::identity_op)]
+                    #[allow(unused_braces)]
+                    #vis fn #set_fn_ident(&mut self, value: #field_ty) #where_clause {
+                        #asserts
+                        <#storage_ty as ::proc_bitfield::SetBits<
+                            <#field_ty as ::proc_bitfield::Bitfield>::Storage>
+                        >::set_bits::<{#start}, {#end}>(&mut #storage, value.0);
+                    }
+                })
+            }
+        }
+    }
 }
 
 struct AutoImpls {
@@ -162,11 +883,10 @@ struct Struct {
     outer_attrs: Vec<Attribute>,
     vis: Visibility,
     ident: Ident,
+    generics: Generics,
     storage_vis: Visibility,
     storage_ty: Type,
     auto_impls: AutoImpls,
-    has_generics: bool,
-    generics: Generics,
     fields: Punctuated<Field, Token![,]>,
 }
 
@@ -177,7 +897,6 @@ impl Parse for Struct {
         input.parse::<Token![struct]>()?;
         let ident = input.parse::<Ident>()?;
 
-        let has_generics = input.peek(Token![<]);
         let mut generics = input.parse::<Generics>()?;
 
         let (storage_vis, storage_ty) = {
@@ -572,13 +1291,265 @@ impl Parse for Struct {
             outer_attrs,
             vis,
             ident,
+            generics,
             storage_vis,
             storage_ty,
             auto_impls,
-            has_generics,
-            generics,
             fields,
         })
+    }
+}
+
+#[cfg(feature = "gce")]
+fn add_nested_generics(mut impl_generics: Generics) -> Generics {
+    impl_generics.params.insert(
+        0,
+        LifetimeParam {
+            attrs: Vec::new(),
+            lifetime: Lifetime::new("'_storage", Span::call_site()),
+            colon_token: Default::default(),
+            bounds: Default::default(),
+        }
+        .into(),
+    );
+    impl_generics
+}
+
+#[cfg(feature = "gce")]
+fn add_nested_impl_generics(
+    mut generics: Generics,
+    fields: &Punctuated<Field, Token![,]>,
+    outer_is_writable: bool,
+) -> Generics {
+    let mut bounds = vec![TraitBound {
+        paren_token: Default::default(),
+        modifier: TraitBoundModifier::None,
+        lifetimes: Default::default(),
+        path: Path {
+            leading_colon: Some(Default::default()),
+            segments: [
+                Ident::new("proc_bitfield", Span::call_site()).into(),
+                PathSegment {
+                    ident: Ident::new("Bit", Span::call_site()),
+                    arguments: PathArguments::None,
+                },
+            ]
+            .into_iter()
+            .collect(),
+        },
+    }
+    .into()];
+
+    for field in fields {
+        let Field {
+            ty, content, bits, ..
+        } = field;
+
+        match content {
+            FieldContent::Single(SingleField { get_kind, set_kind }) => {
+                if matches!(bits, Bits::Single(_) | Bits::SinglePack { .. }) {
+                    if !matches!(get_kind, AccessorKind::Disabled) {
+                        bounds.push(
+                            syn::parse::<TraitBound>(quote! { ::proc_bitfield::Bit }.into())
+                                .unwrap()
+                                .into(),
+                        );
+                    }
+
+                    if !matches!(set_kind, AccessorKind::Disabled) && outer_is_writable {
+                        bounds.push(
+                            syn::parse::<TraitBound>(quote! { ::proc_bitfield::WithBit }.into())
+                                .unwrap()
+                                .into(),
+                        );
+                        bounds.push(
+                            syn::parse::<TraitBound>(quote! { ::proc_bitfield::SetBit }.into())
+                                .unwrap()
+                                .into(),
+                        );
+                    }
+                } else {
+                    if !matches!(get_kind, AccessorKind::Disabled) {
+                        bounds.push(
+                            syn::parse::<TraitBound>(quote! { ::proc_bitfield::Bits<#ty> }.into())
+                                .unwrap()
+                                .into(),
+                        );
+                    }
+
+                    if !matches!(set_kind, AccessorKind::Disabled) && outer_is_writable {
+                        bounds.push(
+                            syn::parse::<TraitBound>(
+                                quote! { ::proc_bitfield::WithBits<#ty> }.into(),
+                            )
+                            .unwrap()
+                            .into(),
+                        );
+                        bounds.push(
+                            syn::parse::<TraitBound>(
+                                quote! { ::proc_bitfield::SetBits<#ty> }.into(),
+                            )
+                            .unwrap()
+                            .into(),
+                        );
+                    }
+                }
+            }
+            FieldContent::Nested(NestedField {
+                is_readable,
+                is_writable,
+            }) => {
+                let field_storage_ty = quote! { <#ty as ::proc_bitfield::Bitfield>::Storage };
+                if *is_readable {
+                    bounds.push(
+                        syn::parse::<TraitBound>(
+                            quote! { ::proc_bitfield::Bits<#field_storage_ty> }.into(),
+                        )
+                        .unwrap()
+                        .into(),
+                    );
+                }
+
+                if *is_writable && outer_is_writable {
+                    bounds.push(
+                        syn::parse::<TraitBound>(
+                            quote! { ::proc_bitfield::WithBits<#field_storage_ty> }.into(),
+                        )
+                        .unwrap()
+                        .into(),
+                    );
+                    bounds.push(
+                        syn::parse::<TraitBound>(
+                            quote! { ::proc_bitfield::SetBits<#field_storage_ty> }.into(),
+                        )
+                        .unwrap()
+                        .into(),
+                    );
+                }
+            }
+        }
+    }
+
+    generics
+        .params
+        .push(type_param(Ident::new("_Storage", Span::call_site()), bounds, None).into());
+    generics.params.push(
+        const_param(
+            Ident::new("START", Span::call_site()),
+            TypePath {
+                qself: None,
+                path: Ident::new("usize", Span::call_site()).into(),
+            }
+            .into(),
+            None,
+        )
+        .into(),
+    );
+    generics.params.push(
+        const_param(
+            Ident::new("END", Span::call_site()),
+            TypePath {
+                qself: None,
+                path: Ident::new("usize", Span::call_site()).into(),
+            }
+            .into(),
+            None,
+        )
+        .into(),
+    );
+    generics
+}
+
+#[allow(clippy::too_many_arguments)]
+fn impl_bitfield_ty<'a>(
+    outer_attrs: &[Attribute],
+    vis: &Visibility,
+    ident: &Ident,
+    generics: &Generics,
+    unused_type_params: impl IntoIterator<Item = &'a TypeParam>,
+    storage_vis: &Visibility,
+    storage_ty: &Type,
+    storage_deref: &proc_macro2::TokenStream,
+    storage_deref_ty: &Type,
+    full_bits: &proc_macro2::TokenStream,
+    full_bits_are_const: bool,
+    start_end_bits: Option<(&proc_macro2::TokenStream, &proc_macro2::TokenStream)>,
+    fields: &Punctuated<Field, Token![,]>,
+    is_writable: bool,
+    allows_with: bool,
+) -> proc_macro2::TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    let mut unused_type_params = unused_type_params.into_iter().peekable();
+    let has_unused_type_params = unused_type_params.peek().is_some();
+    let type_params_phantom_data = if has_unused_type_params {
+        quote! { , ::core::marker::PhantomData }
+    } else {
+        quote! {}
+    };
+
+    let mut last_bits_span = None;
+    let field_fns = fields
+        .iter()
+        .map(|field| {
+            let bits_span = match field.bits.clone().into_span(last_bits_span.as_ref()) {
+                Ok(bits_span) => bits_span,
+                Err(err) => return err.to_compile_error(),
+            };
+            last_bits_span = Some(bits_span.clone());
+
+            let asserts = field.asserts(&bits_span, full_bits, full_bits_are_const);
+
+            let getters = field.getters(
+                &bits_span,
+                &asserts,
+                storage_deref,
+                storage_deref_ty,
+                full_bits,
+                start_end_bits,
+            );
+
+            let setters = is_writable.then_some(()).and_then(|_| {
+                field.setters(
+                    &bits_span,
+                    &asserts,
+                    storage_deref,
+                    storage_deref_ty,
+                    full_bits,
+                    start_end_bits,
+                    allows_with,
+                )
+            });
+
+            quote! {
+                #getters
+                #setters
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let type_params_phantom_data_field_ty = if has_unused_type_params {
+        quote! { , ::core::marker::PhantomData<(#(#unused_type_params),*)> }
+    } else {
+        quote! {}
+    };
+
+    quote! {
+        #(#outer_attrs)*
+        #[repr(transparent)]
+        #vis struct #ident #generics(
+            #storage_vis #storage_ty #type_params_phantom_data_field_ty
+        ) #where_clause;
+
+        impl #impl_generics #ident #ty_generics #where_clause {
+            #[doc(hidden)]
+            #[inline(always)]
+            #storage_vis fn __from_storage(storage: #storage_ty) -> Self {
+                Self(storage #type_params_phantom_data)
+            }
+
+            #(#field_fns)*
+        }
     }
 }
 
@@ -587,559 +1558,165 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         outer_attrs,
         vis,
         ident,
+        generics,
         storage_vis,
         storage_ty,
         auto_impls,
-        has_generics,
-        generics,
         fields,
     } = syn::parse_macro_input!(input);
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let has_type_params = generics.type_params().next().is_some();
+    let ty = quote! { #ident #ty_generics };
 
-    let type_params_phantom_data = if has_type_params {
-        let type_params = generics.type_params();
-        quote! { , ::core::marker::PhantomData::<(#(#type_params),*)> }
-    } else {
-        quote! {}
-    };
+    let storage_ty_bits = quote! { ::core::mem::size_of::<#storage_ty>() << 3 };
+    let storage_ty_bits_are_const = generics.params.is_empty();
 
-    let mut last_bits_span = None;
+    let ty_impl = impl_bitfield_ty(
+        &outer_attrs,
+        &vis,
+        &ident,
+        &generics,
+        generics.type_params(),
+        &storage_vis,
+        &storage_ty,
+        &quote! { self.0 },
+        &storage_ty,
+        &storage_ty_bits,
+        storage_ty_bits_are_const,
+        None,
+        &fields,
+        true,
+        true,
+    );
 
-    let field_fns = fields.iter().map(
-        |Field {
-             attrs,
-             vis,
-             ident,
-             bits,
-             ty: field_ty,
-             content
-         }| {
-            let storage_ty_bits = quote! { ::core::mem::size_of::<#storage_ty>() << 3 };
-            let field_ty_bits = quote! { ::core::mem::size_of::<#field_ty>() << 3 };
+    #[cfg(feature = "gce")]
+    let nested = {
+        let mut nested_outer_attrs = outer_attrs.clone();
+        // TODO: Hack
+        nested_outer_attrs.retain_mut(|attr| !attr.path().is_ident("derive"));
+        nested_outer_attrs.push(doc_hidden());
+        let nested_storage_deref_ty = Type::Path(TypePath {
+            qself: None,
+            path: Ident::new("_Storage", Span::call_site()).into(),
+        });
+        let nested_storage_lifetime = Lifetime::new("'_storage", Span::call_site());
+        let nested_storage_deref = quote! { *self.0 };
+        let nested_start_bit = quote! { START };
+        let nested_end_bit = quote! { END };
 
-            let bits_span = match bits.clone().into_span(last_bits_span.as_ref()) {
-                Ok(bits_span) => bits_span,
-                Err(err) => return err.to_compile_error(),
-            };
-            last_bits_span = Some(bits_span.clone());
+        let nested_impl_generics_ = add_nested_impl_generics(generics.clone(), &fields, false);
+        let (nested_impl_impl_generics, _, nested_impl_where_clause) =
+            nested_impl_generics_.split_for_impl();
 
-            let mut bits_span_asserts = {
-                let assert_is_const = !has_generics;
-                let assert = maybe_const_assert(assert_is_const);
-                let mut asserts = match &bits_span {
-                    BitsSpan::Single(bit) => {
-                        quote_spanned! {
-                            ident.span() =>
-                            #assert((#bit) < (#storage_ty_bits));
-                        }
-                    }
-                    BitsSpan::Range { start, end } => {
-                        quote_spanned! {
-                            ident.span() =>
-                            #assert((#end) > (#start));
-                            #assert((#start) < (#storage_ty_bits) && (#end) <= (#storage_ty_bits));
-                            #assert((#end) - (#start) <= (#field_ty_bits));
-                        }
-                    }
-                    BitsSpan::Full => {
-                        quote_spanned! {
-                            ident.span() =>
-                            #assert((#storage_ty_bits) <= (#field_ty_bits));
-                        }
-                    }
-                };
-                move || {
-                    if assert_is_const {
-                        replace(&mut asserts, quote!{})
-                    } else {
-                        asserts.clone()
-                    }
+        let nested_ty_ident = format_ident!("__Nested_{ident}");
+        let nested_generics = add_nested_generics(nested_impl_generics_.clone());
+        let (nested_impl_generics, nested_ty_generics, nested_where_clause) =
+            nested_generics.split_for_impl();
+        let nested_ty_impl = impl_bitfield_ty(
+            &nested_outer_attrs,
+            &Visibility::Public(Default::default()),
+            &nested_ty_ident,
+            &nested_generics,
+            generics.type_params(),
+            &Visibility::Inherited,
+            &TypeReference {
+                and_token: Default::default(),
+                lifetime: Some(nested_storage_lifetime.clone()),
+                mutability: None,
+                elem: Box::new(nested_storage_deref_ty.clone()),
+            }
+            .into(),
+            &nested_storage_deref,
+            &nested_storage_deref_ty,
+            &storage_ty_bits,
+            storage_ty_bits_are_const,
+            Some((&nested_start_bit, &nested_end_bit)),
+            &fields,
+            false,
+            false,
+        );
+
+        let nested_mut_impl_generics_ = add_nested_impl_generics(generics.clone(), &fields, true);
+        let (nested_mut_impl_impl_generics, _, nested_mut_impl_where_clause) =
+            nested_mut_impl_generics_.split_for_impl();
+
+        let nested_mut_ty_ident = format_ident!("__Nested_Mut_{ident}");
+        let nested_mut_generics = add_nested_generics(nested_mut_impl_generics_.clone());
+        let (nested_mut_impl_generics, nested_mut_ty_generics, nested_mut_where_clause) =
+            nested_mut_generics.split_for_impl();
+        let nested_mut_ty_impl = impl_bitfield_ty(
+            &nested_outer_attrs,
+            &Visibility::Public(Default::default()),
+            &nested_mut_ty_ident,
+            &nested_mut_generics,
+            generics.type_params(),
+            &Visibility::Inherited,
+            &TypeReference {
+                and_token: Default::default(),
+                lifetime: Some(nested_storage_lifetime.clone()),
+                mutability: Some(Default::default()),
+                elem: Box::new(nested_storage_deref_ty.clone()),
+            }
+            .into(),
+            &nested_storage_deref,
+            &nested_storage_deref_ty,
+            &storage_ty_bits,
+            storage_ty_bits_are_const,
+            Some((&nested_start_bit, &nested_end_bit)),
+            &fields,
+            true,
+            false,
+        );
+
+        quote! {
+            impl #nested_impl_impl_generics ::proc_bitfield::NestableBitfield<
+                _Storage, START, END
+            >
+                for #ty #nested_impl_where_clause
+            {
+                type Nested<'_storage> =
+                    #nested_ty_ident #nested_ty_generics where _Storage: '_storage;
+            }
+
+            impl #nested_impl_generics ::proc_bitfield::__private::NestedBitfield<
+                '_storage, _Storage
+            >
+                for #nested_ty_ident #nested_ty_generics #nested_where_clause
+            {
+                #[inline(always)]
+                fn __from_storage(storage: &'_storage _Storage) -> Self {
+                    Self::__from_storage(storage)
                 }
-            };
-
-            match content {
-                FieldContent::Single(SingleField {
-                    get_kind,
-                    set_kind,
-                }) => {
-                    let set_fn_ident = format_ident!("set_{}", ident);
-                    let with_fn_ident = format_ident!("with_{}", ident);
-
-                    let getter = if !matches!(&get_kind, AccessorKind::Disabled) {
-                        let (calc_get_result, get_output_ty) = match get_kind {
-                            AccessorKind::Default => (
-                                quote! { raw_value },
-                                field_ty.to_token_stream(),
-                            ),
-                            AccessorKind::Disabled => unreachable!(),
-
-                            AccessorKind::ConvTy(ty) => (
-                                quote! {
-                                    <#ty as ::core::convert::From<#field_ty>>::from(raw_value)
-                                },
-                                ty.to_token_stream(),
-                            ),
-                            AccessorKind::UnsafeConvTy { ty, has_safe_accessor } => {
-                                let unsafe_ = has_safe_accessor.then(|| quote! { unsafe })
-                                    .into_iter();
-                                (
-                                    quote! {
-                                        #(#unsafe_)* {
-                                            <
-                                                #ty as ::proc_bitfield::UnsafeFrom<#field_ty>
-                                            >::unsafe_from(raw_value)
-                                        }
-                                    },
-                                    ty.to_token_stream(),
-                                )
-                            },
-                            AccessorKind::TryConvTy(ty) => (
-                                quote! {
-                                    <
-                                        #ty as ::core::convert::TryFrom<#field_ty>
-                                    >::try_from(raw_value)
-                                },
-                                quote! {
-                                    ::core::result::Result<
-                                        #ty,
-                                        <#ty as ::core::convert::TryFrom<#field_ty>>::Error,
-                                    >
-                                },
-                            ),
-                            AccessorKind::UnwrapConvTy(ty) => (
-                                quote! {
-                                    <
-                                        #ty as ::core::convert::TryFrom<#field_ty>
-                                    >::try_from(raw_value).unwrap()
-                                },
-                                ty.to_token_stream(),
-                            ),
-
-                            AccessorKind::ConvFn { fn_, ty } => (
-                                quote! { #fn_(raw_value) },
-                                ty.to_token_stream(),
-                            ),
-                            AccessorKind::UnsafeConvFn { fn_, ty, has_safe_accessor } => {
-                                let unsafe_ = has_safe_accessor.then(|| quote! { unsafe })
-                                    .into_iter();
-                                (
-                                    quote! { #(#unsafe_)* { #fn_(raw_value) } },
-                                    ty.to_token_stream(),
-                                )
-                            },
-
-                            AccessorKind::TryGetFn { fn_, result_ty } => (
-                                quote! { #fn_(raw_value) },
-                                result_ty.to_token_stream(),
-                            ),
-                            AccessorKind::TrySetFn { .. } => unreachable!(),
-                            AccessorKind::UnwrapConvFn { fn_, ty } => (
-                                quote! { #fn_(raw_value).unwrap() },
-                                ty.to_token_stream(),
-                            )
-                        };
-
-                        let get_raw_value = match &bits_span {
-                            BitsSpan::Single(bit) => {
-                                quote_spanned! {
-                                    ident.span() =>
-                                    let raw_value = <#storage_ty as ::proc_bitfield::Bit>
-                                        ::bit::<{#bit}>(&self.0);
-                                }
-                            }
-                            BitsSpan::Range { start, end } => {
-                                quote_spanned! {
-                                    ident.span() =>
-                                    let raw_value = <
-                                        #storage_ty as ::proc_bitfield::Bits<#field_ty>
-                                    >::bits::<{#start}, {#end}>(&self.0);
-                                }
-                            }
-                            BitsSpan::Full => {
-                                quote_spanned! {
-                                    ident.span() =>
-                                    let raw_value = <
-                                        #storage_ty as ::proc_bitfield::Bits<#field_ty>
-                                    >::bits::<0, {#storage_ty_bits}>(&self.0);
-                                }
-                            }
-                        };
-
-                        let get_unsafe = get_kind.is_unsafe()
-                            .then(|| quote! { unsafe })
-                            .into_iter();
-                        let bits_span_asserts = bits_span_asserts();
-                        quote! {
-                            #(#attrs)*
-                            #[inline]
-                            #[allow(clippy::identity_op)]
-                            #[allow(unused_braces)]
-                            #vis #(#get_unsafe)* fn #ident(&self) -> #get_output_ty {
-                                #bits_span_asserts
-                                #get_raw_value
-                                #calc_get_result
-                            }
-                        }
-                    } else {
-                        quote! {}
-                    };
-
-                    let setters = if !matches!(&set_kind, AccessorKind::Disabled) {
-                        let (
-                            calc_set_with_raw_value,
-                            set_with_input_ty,
-                            set_ok,
-                            set_output_ty,
-                            with_ok,
-                            with_output_ty,
-                        ) = match set_kind {
-                            AccessorKind::Default => (
-                                quote! { value },
-                                field_ty,
-                                quote! {},
-                                quote! { () },
-                                quote! { raw_result },
-                                quote! { Self },
-                            ),
-                            AccessorKind::Disabled => unreachable!(),
-
-                            AccessorKind::ConvTy(ty) => (
-                                quote! { <#ty as ::core::convert::Into<#field_ty>>::into(value) },
-                                ty,
-                                quote! {},
-                                quote! { () },
-                                quote! { raw_result },
-                                quote! { Self },
-                            ),
-                            AccessorKind::UnsafeConvTy { ty, has_safe_accessor } => {
-                                let unsafe_ = has_safe_accessor.then(|| quote! { unsafe })
-                                    .into_iter();
-                                (
-                                    quote! {
-                                        #(#unsafe_)* {
-                                            <
-                                                #ty as ::proc_bitfield::UnsafeInto<#field_ty>
-                                            >::unsafe_into(value)
-                                        }
-                                    },
-                                    ty,
-                                    quote! {},
-                                    quote! { () },
-                                    quote! { raw_result },
-                                    quote! { Self },
-                                )
-                            },
-                            AccessorKind::TryConvTy(ty) => (
-                                quote! {
-                                    <#ty as ::core::convert::TryInto<#field_ty>>::try_into(value)?
-                                },
-                                ty,
-                                quote! { ::core::result::Result::Ok(()) },
-                                quote! {
-                                    ::core::result::Result<
-                                        (),
-                                        <#ty as ::core::convert::TryInto<#field_ty>>::Error
-                                    >
-                                },
-                                quote! { ::core::result::Result::Ok(raw_result) },
-                                quote! {
-                                    ::core::result::Result<
-                                        Self,
-                                        <#ty as ::core::convert::TryInto<#field_ty>>::Error
-                                    >
-                                },
-                            ),
-                            AccessorKind::UnwrapConvTy(ty) => (
-                                quote! {
-                                    <#ty as ::core::convert::TryInto<#field_ty>>::try_into(value)
-                                        .unwrap()
-                                },
-                                ty,
-                                quote! {},
-                                quote! { () },
-                                quote! { raw_result },
-                                quote! { Self },
-                            ),
-
-                            AccessorKind::ConvFn { fn_, ty } => (
-                                quote! { #fn_(value) },
-                                ty,
-                                quote! {},
-                                quote! { () },
-                                quote! { raw_result },
-                                quote! { Self },
-                            ),
-                            AccessorKind::UnsafeConvFn { fn_, ty, has_safe_accessor } => {
-                                let unsafe_ = has_safe_accessor.then(|| quote! { unsafe })
-                                    .into_iter();
-                                (
-                                    quote! { #(#unsafe_)* { #fn_(value) } },
-                                    ty,
-                                    quote! {},
-                                    quote! { () },
-                                    quote! { raw_result },
-                                    quote! { Self },
-                                )
-                            },
-                            AccessorKind::TryGetFn { .. } => unreachable!(),
-                            AccessorKind::TrySetFn { fn_, input_ty, result_ty } => (
-                                quote! { #fn_(value)? },
-                                input_ty,
-                                quote! {
-                                    <
-                                        #result_ty as ::proc_bitfield::Try
-                                    >::WithOutput::<()>::from_output(())
-                                },
-                                quote! { <#result_ty as ::proc_bitfield::Try>::WithOutput<()> },
-                                quote! {
-                                    <
-                                        #result_ty as ::proc_bitfield::Try
-                                    >::WithOutput::<Self>::from_output(raw_result)
-                                },
-                                quote! { <#result_ty as ::proc_bitfield::Try>::WithOutput<Self> },
-                            ),
-                            AccessorKind::UnwrapConvFn { fn_, ty } => (
-                                quote! { #fn_(value).unwrap() },
-                                ty,
-                                quote! {},
-                                quote! { () },
-                                quote! { raw_result },
-                                quote! { Self },
-                            ),
-                        };
-
-                        let with_raw_value = match &bits_span {
-                            BitsSpan::Single(bit) => quote_spanned! {
-                                ident.span() =>
-                                Self(<#storage_ty as ::proc_bitfield::WithBit>::with_bit::<{#bit}>(
-                                    self.0,
-                                    #calc_set_with_raw_value,
-                                ) #type_params_phantom_data)
-                            },
-                            BitsSpan::Range { start, end } => quote_spanned! {
-                                ident.span() =>
-                                Self(<#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
-                                    ::with_bits::<{#start}, {#end}>(
-                                        self.0,
-                                        #calc_set_with_raw_value,
-                                    )
-                                    #type_params_phantom_data
-                                )
-                            },
-                            BitsSpan::Full => quote_spanned! {
-                                ident.span() =>
-                                Self(
-                                    <
-                                        #storage_ty as ::proc_bitfield::WithBits<#field_ty>
-                                    >::with_bits::<0, {#storage_ty_bits}>(
-                                        self.0,
-                                        #calc_set_with_raw_value,
-                                    )
-                                    #type_params_phantom_data
-                                )
-                            },
-                        };
-
-                        let set_raw_value = match &bits_span {
-                            BitsSpan::Single(bit) => quote_spanned! {
-                                ident.span() =>
-                                <#storage_ty as ::proc_bitfield::SetBit>::set_bit::<{#bit}>(
-                                    &mut self.0,
-                                    #calc_set_with_raw_value,
-                                )
-                            },
-                            BitsSpan::Range { start, end } => quote_spanned! {
-                                ident.span() =>
-                                <
-                                    #storage_ty as ::proc_bitfield::SetBits<#field_ty>
-                                >::set_bits::<{#start}, {#end}>(
-                                    &mut self.0,
-                                    #calc_set_with_raw_value,
-                                )
-                            },
-                            BitsSpan::Full => quote_spanned! {
-                                ident.span() =>
-                                <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
-                                    ::set_bits::<0, {#storage_ty_bits}>(
-                                        &mut self.0,
-                                        #calc_set_with_raw_value,
-                                    )
-                            },
-                        };
-
-                        let set_with_unsafe = set_kind.is_unsafe().then(|| quote! { unsafe });
-                        let set_with_unsafe_1 = set_with_unsafe.iter();
-                        let bits_span_asserts_1 = bits_span_asserts();
-                        let set_with_unsafe_2 = set_with_unsafe_1.clone();
-                        let bits_span_asserts_2 = bits_span_asserts();
-                        quote! {
-                            #(#attrs)*
-                            #[inline]
-                            #[must_use]
-                            #[allow(clippy::identity_op)]
-                            #[allow(unused_braces)]
-                            #vis #(#set_with_unsafe_1)* fn #with_fn_ident(
-                                self,
-                                value: #set_with_input_ty,
-                            ) -> #with_output_ty {
-                                #bits_span_asserts_1
-                                let raw_result = #with_raw_value;
-                                #with_ok
-                            }
-
-                            #(#attrs)*
-                            #[inline]
-                            #[allow(clippy::identity_op)]
-                            #[allow(unused_braces)]
-                            #vis #(#set_with_unsafe_2)* fn #set_fn_ident(
-                                &mut self,
-                                value: #set_with_input_ty,
-                            ) -> #set_output_ty {
-                                #bits_span_asserts_2
-                                #set_raw_value;
-                                #set_ok
-                            }
-                        }
-                    } else {
-                        quote! {}
-                    };
-
-                    quote! {
-                        #getter
-                        #setters
-                    }
-                },
-
-                FieldContent::Nested(NestedField { is_readable, is_writable }) => {
-                    let mut_fn_ident = format_ident!("{}_mut", ident);
-                    let set_fn_ident = format_ident!("set_{}", ident);
-                    let with_fn_ident = format_ident!("with_{}", ident);
-
-                    let (start, end) = match bits_span {
-                        BitsSpan::Single(_) => panic!("Nested bitfields can't be single-bit"),
-                        BitsSpan::Range { start, ref end } => {
-                            (start, end)
-                        }
-                        BitsSpan::Full => {
-                            (quote! { 0 }, &storage_ty_bits)
-                        }
-                    };
-
-                    let getter = if *is_readable {
-                        let bits_span_asserts = bits_span_asserts();
-                        quote! {
-                            #(#attrs)*
-                            #[inline]
-                            #[allow(clippy::identity_op)]
-                            #[allow(unused_braces)]
-                            #vis fn #ident(&self) -> ::proc_bitfield::nested::NestedRef<
-                                Self, #field_ty, {#start}, {#end}
-                            > {
-                                #bits_span_asserts
-                                ::proc_bitfield::nested::NestedRef::new(self)
-                            }
-                        }
-                    } else {
-                        quote! {}
-                    };
-
-                    let modifier = if *is_readable && *is_writable {
-                        let bits_span_asserts = bits_span_asserts();
-                        quote! {
-                            #(#attrs)*
-                            #[inline]
-                            #[allow(clippy::identity_op)]
-                            #[allow(unused_braces)]
-                            #vis fn #mut_fn_ident(&mut self)
-                                -> ::proc_bitfield::nested::NestedRefMut<
-                                    Self, #field_ty, {#start}, {#end}
-                                >
-                            {
-                                #bits_span_asserts
-                                ::proc_bitfield::nested::NestedRefMut::new(self)
-                            }
-                        }
-                    } else {
-                        quote! {}
-                    };
-
-                    let setters = if *is_writable {
-                        let bits_span_asserts_1 = bits_span_asserts();
-                        let bits_span_asserts_2 = bits_span_asserts();
-                        quote! {
-                            #(#attrs)*
-                            #[inline]
-                            #[must_use]
-                            #[allow(clippy::identity_op)]
-                            #[allow(unused_braces)]
-                            #vis fn #with_fn_ident(self, value: #field_ty) -> Self {
-                                #bits_span_asserts_1
-                                Self(
-                                    <#storage_ty as ::proc_bitfield::WithBits<
-                                        <#field_ty as ::proc_bitfield::Bitfield>::Storage>
-                                    >::with_bits::<{#start}, {#end}>(
-                                        self.0,
-                                        ::proc_bitfield::Bitfield::into_storage(value),
-                                    )
-                                    #type_params_phantom_data
-                                )
-                            }
-
-                            #(#attrs)*
-                            #[inline]
-                            #[allow(clippy::identity_op)]
-                            #[allow(unused_braces)]
-                            #vis fn #set_fn_ident(&mut self, value: #field_ty) {
-                                #bits_span_asserts_2
-                                <#storage_ty as ::proc_bitfield::SetBits<
-                                    <#field_ty as ::proc_bitfield::Bitfield>::Storage>
-                                >::set_bits::<{#start}, {#end}>(
-                                    &mut self.0,
-                                    ::proc_bitfield::Bitfield::into_storage(value),
-                                );
-                            }
-                        }
-                    } else {
-                        quote! {}
-                    };
-
-                    quote! {
-                        #getter
-                        #modifier
-                        #setters
-                    }
-                },
-            }
-        },
-    ).collect::<Vec<_>>();
-
-    let mut impls = vec![quote! {
-        impl #impl_generics ::proc_bitfield::Bitfield for #ident #ty_generics #where_clause {
-            type Storage = #storage_ty;
-
-            #[inline]
-            fn from_storage(storage: Self::Storage) -> Self {
-                Self(storage #type_params_phantom_data)
             }
 
-            #[inline]
-            fn into_storage(self) -> Self::Storage {
-                self.0
+            impl #nested_mut_impl_impl_generics ::proc_bitfield::NestableMutBitfield<
+                _Storage, START, END
+            >
+                for #ty #nested_mut_impl_where_clause
+            {
+                type NestedMut<'_storage> =
+                    #nested_mut_ty_ident #nested_mut_ty_generics where _Storage: '_storage;
             }
 
-            #[inline]
-            fn storage(&self) -> &Self::Storage {
-                &self.0
+            impl #nested_mut_impl_generics ::proc_bitfield::__private::NestedMutBitfield<
+                '_storage, _Storage
+            >
+                for #nested_mut_ty_ident #nested_mut_ty_generics #nested_mut_where_clause
+            {
+                #[inline(always)]
+                fn __from_storage(storage: &'_storage mut _Storage) -> Self {
+                    Self::__from_storage(storage)
+                }
             }
 
-            #[inline]
-            fn storage_mut(&mut self) -> &mut Self::Storage {
-                &mut self.0
-            }
+            #nested_ty_impl
+            #nested_mut_ty_impl
         }
-    }];
+    };
+    #[cfg(not(feature = "gce"))]
+    let nested = quote! {};
+
+    let mut impls = Vec::new();
 
     if auto_impls.debug {
         let readable_fields = fields.iter().filter(|field| field.is_readable());
@@ -1172,7 +1749,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                 #where_clause
             {
                 fn from(other: #storage_ty) -> Self {
-                    Self(other #type_params_phantom_data)
+                    Self::__from_storage(other)
                 }
             }
         });
@@ -1202,25 +1779,16 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         });
     }
 
-    let type_params_phantom_data_field = if has_type_params {
-        let type_params = generics.type_params();
-        quote! { , #storage_vis ::core::marker::PhantomData<(#(#type_params),*)> }
-    } else {
-        quote! {}
-    };
-
-    (quote! {
-        #(#outer_attrs)*
-        #[repr(transparent)]
-        #vis struct #ident #generics(
-            #storage_vis #storage_ty #type_params_phantom_data_field
-        ) #where_clause;
-
-        impl #impl_generics #ident #ty_generics #where_clause {
-            #(#field_fns)*
+    quote! {
+        impl #impl_generics ::proc_bitfield::Bitfield for #ty #where_clause {
+            type Storage = #storage_ty;
         }
 
+        #ty_impl
+
+        #nested
+
         #(#impls)*
-    })
+    }
     .into()
 }

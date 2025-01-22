@@ -5,6 +5,9 @@ macro_rules! impl_bits_for_int_type {
         impl Bits<$value> for $storage {
             #[inline]
             fn bits<const START: usize, const END: usize>(&self) -> $value {
+                if START >= END {
+                    return 0;
+                }
                 const VALUE_BITS: usize = <$value>::BITS as usize;
                 let read_bits = END - START;
                 ((*self >> START) as $value) << (VALUE_BITS - read_bits) >> (VALUE_BITS - read_bits)
@@ -14,6 +17,9 @@ macro_rules! impl_bits_for_int_type {
         impl WithBits<$value> for $storage {
             #[inline]
             fn with_bits<const START: usize, const END: usize>(self, value: $value) -> Self {
+                if START >= END {
+                    return self;
+                }
                 let written_bits = END - START;
                 let mask = ((1 as $storage) << (written_bits - 1) << 1).wrapping_sub(1) << START;
                 (self & !mask) | ((value as $storage) << START & mask)
@@ -23,6 +29,9 @@ macro_rules! impl_bits_for_int_type {
         impl SetBits<$value> for $storage {
             #[inline]
             fn set_bits<const START: usize, const END: usize>(&mut self, value: $value) {
+                if START >= END {
+                    return;
+                }
                 *self = self.with_bits::<START, END>(value);
             }
         }

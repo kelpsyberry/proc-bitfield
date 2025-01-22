@@ -12,6 +12,9 @@ macro_rules! impl_bits_for_int_type {
             impl<const N: usize> Bits<$value> for [$storage; N] {
                 #[inline]
                 fn bits<const START: usize, const END: usize>(&self) -> $value {
+                    if START >= END {
+                        return 0;
+                    }
                     let bits = if START >> S_SHIFT == (END - 1) >> S_SHIFT {
                         (self[START >> S_SHIFT] >> (START & S_MASK)) as $value
                     } else {
@@ -42,6 +45,9 @@ macro_rules! impl_bits_for_int_type {
             impl<const N: usize> SetBits<$value> for [$storage; N] {
                 #[inline]
                 fn set_bits<const START: usize, const END: usize>(&mut self, value: $value) {
+                    if START >= END {
+                        return;
+                    }
                     if START >> S_SHIFT == (END - 1) >> S_SHIFT {
                         let i = START >> S_SHIFT;
                         let written_bits = END - START;
@@ -67,6 +73,9 @@ macro_rules! impl_bits_for_int_type {
             impl Bits<$value> for [$storage] {
                 #[inline]
                 fn bits<const START: usize, const END: usize>(&self) -> $value {
+                    if START >= END {
+                        return 0;
+                    }
                     let bits = if START >> S_SHIFT == (END - 1) >> S_SHIFT {
                         (self[START >> S_SHIFT] >> (START & S_MASK)) as $value
                     } else {
@@ -86,6 +95,9 @@ macro_rules! impl_bits_for_int_type {
             impl SetBits<$value> for [$storage] {
                 #[inline]
                 fn set_bits<const START: usize, const END: usize>(&mut self, value: $value) {
+                    if START >= END {
+                        return;
+                    }
                     if START >> S_SHIFT == (END - 1) >> S_SHIFT {
                         let i = START >> S_SHIFT;
                         let written_bits = END - START;
@@ -111,6 +123,9 @@ macro_rules! impl_bits_for_int_type {
             impl<const M: usize> Bits<[$value; M]> for $storage {
                 #[inline]
                 fn bits<const START: usize, const END: usize>(&self) -> [$value; M] {
+                    if START >= END {
+                        return [0; M];
+                    }
                     let mut result = [0; M];
                     for i in 0..=(END - START - 1) >> V_SHIFT {
                         let start = START + (i << V_SHIFT);
@@ -129,6 +144,9 @@ macro_rules! impl_bits_for_int_type {
                     mut self,
                     value: [$value; M],
                 ) -> Self {
+                    if START >= END {
+                        return self;
+                    }
                     for i in 0..=(END - START - 1) >> V_SHIFT {
                         let start = START + (i << V_SHIFT);
                         let end = (start + V_BITS).min(END);
@@ -151,6 +169,9 @@ macro_rules! impl_bits_for_int_type {
             impl<const M: usize, const N: usize> Bits<[$value; M]> for [$storage; N] {
                 #[inline]
                 fn bits<const START: usize, const END: usize>(&self) -> [$value; M] {
+                    if START >= END {
+                        return [0; M];
+                    }
                     let mut result = [0; M];
                     for i in 0..=(END - START - 1) >> V_SHIFT {
                         let start = START + (i << V_SHIFT);
@@ -187,6 +208,9 @@ macro_rules! impl_bits_for_int_type {
             impl<const M: usize, const N: usize> SetBits<[$value; M]> for [$storage; N] {
                 #[inline]
                 fn set_bits<const START: usize, const END: usize>(&mut self, value: [$value; M]) {
+                    if START >= END {
+                        return;
+                    }
                     for i in 0..=(END - START - 1) >> V_SHIFT {
                         let start = START + (i << V_SHIFT);
                         let end = (start + V_BITS).min(END);
@@ -218,6 +242,9 @@ macro_rules! impl_bits_for_int_type {
             impl<const M: usize> Bits<[$value; M]> for [$storage] {
                 #[inline]
                 fn bits<const START: usize, const END: usize>(&self) -> [$value; M] {
+                    if START >= END {
+                        return [0; M];
+                    }
                     let mut result = [0; M];
                     for i in 0..=(END - START - 1) >> V_SHIFT {
                         let start = START + (i << V_SHIFT);
@@ -243,6 +270,9 @@ macro_rules! impl_bits_for_int_type {
             impl<const M: usize> SetBits<[$value; M]> for [$storage] {
                 #[inline]
                 fn set_bits<const START: usize, const END: usize>(&mut self, value: [$value; M]) {
+                    if START >= END {
+                        return;
+                    }
                     for i in 0..=(END - START - 1) >> V_SHIFT {
                         let start = START + (i << V_SHIFT);
                         let end = (start + V_BITS).min(END);
