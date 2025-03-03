@@ -191,14 +191,17 @@ pub fn derive_conv_raw(item: TokenStream) -> TokenStream {
             if let [(v_false, _, 0), (v_true, _, 1)] | [(v_true, _, 1), (v_false, _, 0)] =
                 discr_data.as_slice()
             {
+                let v_false_name = &v_false.ident;
+                let v_true_name = &v_true.ident;
+
                 let impl_from_bool = quote! {
                     impl #impl_generics ::core::convert::From<bool> for #type_name #ty_generics
                         #where_clause
                     {
                         fn from(other: bool) -> #type_name #ty_generics {
                             match other {
-                                false => #type_name::#v_false,
-                                true => #type_name::#v_true,
+                                false => #type_name::#v_false_name,
+                                true => #type_name::#v_true_name,
                             }
                         }
                     }
@@ -211,8 +214,8 @@ pub fn derive_conv_raw(item: TokenStream) -> TokenStream {
                     {
                         fn from(other: #type_name #ty_generics) -> bool {
                             match other {
-                                #type_name::#v_false => false,
-                                #type_name::#v_true => true,
+                                #type_name::#v_false_name => false,
+                                #type_name::#v_true_name => true,
                             }
                         }
                     }
