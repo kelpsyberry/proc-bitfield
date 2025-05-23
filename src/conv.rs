@@ -1,7 +1,11 @@
 #![allow(clippy::missing_safety_doc)]
 
+#[cfg(not(feature = "nightly"))]
 mod impls;
+#[cfg(feature = "nightly")]
+mod impls_nightly;
 
+#[cfg_attr(feature = "nightly", const_trait)]
 /// Equivalent of [`core::ops::Try`] that doesn't require nightly and allows changing the output
 /// type using a GAT.
 ///
@@ -14,6 +18,7 @@ pub trait Try {
     fn from_output(output: Self::Output) -> Self;
 }
 
+#[cfg_attr(feature = "nightly", const_trait)]
 /// Unsafe equivalent of [`From`].
 ///
 /// Used to do unsafe value-to-value conversions while consuming the input value. It is the
@@ -42,6 +47,7 @@ pub trait UnsafeFrom<T> {
     unsafe fn unsafe_from(_: T) -> Self;
 }
 
+#[cfg_attr(feature = "nightly", const_trait)]
 /// Unsafe equivalent of [`Into`].
 ///
 /// Used to do unsafe value-to-value conversions while consuming the input value. It is the

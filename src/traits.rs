@@ -7,20 +7,26 @@ pub trait Bitfield {
 
 #[cfg(feature = "gce")]
 pub trait NestableBitfield<S, const START: usize, const END: usize> {
-    type Nested<'a>: crate::__private::NestedBitfield<'a, S> where S: 'a;
+    type Nested<'a>: crate::__private::NestedBitfield<'a, S>
+    where
+        S: 'a;
 }
 
 #[cfg(feature = "gce")]
 pub trait NestableMutBitfield<S, const START: usize, const END: usize> {
-    type NestedMut<'a>: crate::__private::NestedMutBitfield<'a, S> where S: 'a;
+    type NestedMut<'a>: crate::__private::NestedMutBitfield<'a, S>
+    where
+        S: 'a;
 }
 
+#[cfg_attr(feature = "nightly", const_trait)]
 /// Read a range of bits inside a value.
 pub trait Bits<T> {
     /// Read `self`'s `START..END` bit range (with `END` excluded) as a value of type `T`.
     fn bits<const START: usize, const END: usize>(&self) -> T;
 }
 
+#[cfg_attr(feature = "nightly", const_trait)]
 /// Return a value with a range of bits modified.
 pub trait WithBits<T> {
     #[must_use]
@@ -29,6 +35,7 @@ pub trait WithBits<T> {
     fn with_bits<const START: usize, const END: usize>(self, value: T) -> Self;
 }
 
+#[cfg_attr(feature = "nightly", const_trait)]
 /// Modify a range of bits inside a value in place.
 pub trait SetBits<T> {
     /// Sets `self`'s `START..END` bit range (with `END` excluded) to the given value of type `T`
@@ -36,12 +43,14 @@ pub trait SetBits<T> {
     fn set_bits<const START: usize, const END: usize>(&mut self, value: T);
 }
 
+#[cfg_attr(feature = "nightly", const_trait)]
 /// Read a single bit inside a value.
 pub trait Bit {
     /// Read `self`'s specified bit.
     fn bit<const BIT: usize>(&self) -> bool;
 }
 
+#[cfg_attr(feature = "nightly", const_trait)]
 /// Return a value with a single bit modified.
 pub trait WithBit {
     /// Returns `self` with the the specified bit set to 1 if `value` is `true`, and 0 otherwise.
@@ -49,6 +58,7 @@ pub trait WithBit {
     fn with_bit<const BIT: usize>(self, value: bool) -> Self;
 }
 
+#[cfg_attr(feature = "nightly", const_trait)]
 /// Modify a single bit inside a value in place.
 pub trait SetBit {
     /// Sets `self`'s specified bit to 1 if `value` is `true`, and 0 otherwise.

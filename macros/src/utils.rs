@@ -4,9 +4,7 @@ use std::cell::Cell;
 use proc_macro2::Span;
 use quote::{format_ident, quote};
 use syn::{
-    parenthesized,
-    parse::{ParseBuffer, ParseStream},
-    Ident, Result,
+    braced, bracketed, parenthesized, parse::{Parse, ParseBuffer, ParseStream}, punctuated::Punctuated, Ident, Result
 };
 #[cfg(feature = "gce")]
 use syn::{
@@ -27,6 +25,18 @@ pub fn for_all_int_types(mut f: impl FnMut(u8, bool, Ident)) {
 pub fn parse_parens(input: ParseStream<'_>) -> Result<ParseBuffer<'_>> {
     let content;
     parenthesized!(content in input);
+    Ok(content)
+}
+
+pub fn parse_brackets(input: ParseStream<'_>) -> Result<ParseBuffer<'_>> {
+    let content;
+    bracketed!(content in input);
+    Ok(content)
+}
+
+pub fn parse_braces(input: ParseStream<'_>) -> Result<ParseBuffer<'_>> {
+    let content;
+    braced!(content in input);
     Ok(content)
 }
 
@@ -90,6 +100,26 @@ impl MaybeRepeat {
         }
         &self.content
     }
+}
+
+pub fn parse_terminated<T, P: Parse>(
+    input: ParseStream,
+    mut parser: impl FnMut(ParseStream) -> syn::Result<T>,
+) -> syn::Result<Punctuated<T, P>> {
+    let mut punctuated = Punctuated::new();
+    loop {
+        if input.is_empty() {
+            break;
+        }
+        let value = parser(input)?;
+        punctuated.push_value(value);
+        if input.is_empty() {
+            break;
+        }
+        let punct = input.parse()?;
+        punctuated.push_punct(punct);
+    }
+    Ok(punctuated)
 }
 
 #[cfg(feature = "gce")]

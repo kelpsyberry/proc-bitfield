@@ -1,19 +1,20 @@
 #![doc = include_str!("../docs.md")]
 #![cfg_attr(not(test), no_std)]
+#![cfg_attr(feature = "nightly", feature(const_trait_impl))]
 #![cfg_attr(all(doc, feature = "nightly"), feature(doc_cfg))]
 #![cfg_attr(all(any(doc, test), feature = "nightly"), feature(trivial_bounds))]
 #![warn(clippy::all)]
 #![cfg_attr(
     all(any(doc, test), feature = "gce"),
     feature(generic_const_exprs),
-    allow(incomplete_features)
+    expect(incomplete_features)
 )]
 
 #[doc(hidden)]
 pub mod __private {
     pub use static_assertions;
 
-    #[cfg(feature = "gce")]
+    #[inline(always)]
     pub const fn min(a: usize, b: usize) -> usize {
         if a < b {
             a
@@ -22,12 +23,23 @@ pub mod __private {
         }
     }
 
+    #[inline(always)]
+    pub const fn max(a: usize, b: usize) -> usize {
+        if a > b {
+            a
+        } else {
+            b
+        }
+    }
+
     #[cfg(feature = "gce")]
+    #[const_trait]
     pub trait NestedBitfield<'a, S> {
         fn __from_storage(storage: &'a S) -> Self;
     }
 
     #[cfg(feature = "gce")]
+    #[const_trait]
     pub trait NestedMutBitfield<'a, S> {
         fn __from_storage(storage: &'a mut S) -> Self;
     }

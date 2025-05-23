@@ -2,16 +2,19 @@
 use crate::utils::{const_param, doc_hidden, min, sized_pred, type_param};
 use crate::{
     bits::{Bits, BitsSpan},
-    utils::{maybe_const_assert, parse_parens, MaybeRepeat},
+    utils::{
+        maybe_const_assert, parse_braces, parse_brackets, parse_parens, parse_terminated,
+        MaybeRepeat,
+    },
 };
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 #[cfg(feature = "gce")]
 use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 #[cfg(feature = "gce")]
 use std::borrow::Cow;
 use syn::{
-    braced, bracketed, parenthesized,
     parse::{Parse, ParseStream, Result},
     punctuated::Punctuated,
     spanned::Spanned,
@@ -59,6 +62,8 @@ mod kw {
     syn::custom_keyword!(ro);
     syn::custom_keyword!(write_only);
     syn::custom_keyword!(wo);
+
+    syn::custom_keyword!(no_const);
 
     syn::custom_keyword!(Debug);
     syn::custom_keyword!(FromStorage);
@@ -144,6 +149,9 @@ struct Field {
     bits: Bits,
     ty: Type,
     content: FieldContent,
+    // TODO: Allow specifying constness for getters and setters separately?
+    #[cfg(feature = "nightly")]
+    uses_const_fns: bool,
 }
 
 impl Field {
@@ -152,6 +160,24 @@ impl Field {
             FieldContent::Single(content) => !matches!(content.get_kind, AccessorKind::Disabled),
             FieldContent::Nested(content) => content.is_readable,
         }
+    }
+
+    fn has_const_getter(&self) -> bool {
+        #[cfg(feature = "nightly")]
+        {
+            self.uses_const_fns
+        }
+        #[cfg(not(feature = "nightly"))]
+        false
+    }
+
+    fn has_const_setter(&self) -> bool {
+        #[cfg(feature = "nightly")]
+        {
+            self.uses_const_fns
+        }
+        #[cfg(not(feature = "nightly"))]
+        false
     }
 
     fn has_unsafe_getter(&self) -> bool {
@@ -232,7 +258,10 @@ impl Field {
         storage: &proc_macro2::TokenStream,
         storage_ty: &Type,
         full_bits: &proc_macro2::TokenStream,
-        start_end_bits: Option<(&proc_macro2::TokenStream, &proc_macro2::TokenStream)>,
+        #[cfg(feature = "gce")] start_end_bits: Option<(
+            &proc_macro2::TokenStream,
+            &proc_macro2::TokenStream,
+        )>,
     ) -> Option<proc_macro2::TokenStream> {
         let Field {
             attrs,
@@ -330,41 +359,42 @@ impl Field {
                     AccessorKind::TrySetFn { .. } | AccessorKind::Disabled => unreachable!(),
                 };
 
-                let get_raw_value = if let Some((_start_bit, _end_bit)) = start_end_bits {
+                #[allow(unused_labels)]
+                let get_raw_value = 'get_raw_value: {
                     #[cfg(feature = "gce")]
-                    match bits_span {
-                        BitsSpan::Single(bit) => {
-                            let bit = quote! { (#_start_bit) + (#bit) };
-                            quote_spanned! {
-                                ident.span() =>
-                                if (#bit) < (#_end_bit) {
-                                    <#storage_ty as ::proc_bitfield::Bit>::bit::<{#bit}>(&#storage)
-                                } else {
-                                    false
+                    if let Some((_start_bit, _end_bit)) = start_end_bits {
+                        break 'get_raw_value match bits_span {
+                            BitsSpan::Single(bit) => {
+                                let bit = quote! { (#_start_bit) + (#bit) };
+                                quote_spanned! {
+                                    ident.span() =>
+                                    if (#bit) < (#_end_bit) {
+                                        <#storage_ty as ::proc_bitfield::Bit>::bit::<{#bit}>(&#storage)
+                                    } else {
+                                        false
+                                    }
                                 }
                             }
-                        }
-                        BitsSpan::Range { start, end } => {
-                            let start = quote! { (#_start_bit) + (#start) };
-                            let end = min(&quote! { (#_start_bit) + (#end) }, _end_bit);
-                            quote_spanned! {
-                                ident.span() =>
-                                <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
-                                    ::bits::<{#start}, {#end}>(&#storage)
+                            BitsSpan::Range { start, end } => {
+                                let start = quote! { (#_start_bit) + (#start) };
+                                let end = min(&quote! { (#_start_bit) + (#end) }, _end_bit);
+                                quote_spanned! {
+                                    ident.span() =>
+                                    <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
+                                        ::bits::<{#start}, {#end}>(&#storage)
+                                }
                             }
-                        }
-                        BitsSpan::Full => {
-                            let end = min(&quote! { (#_start_bit) + (#full_bits) }, _end_bit);
-                            quote_spanned! {
-                                ident.span() =>
-                                <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
-                                    ::bits::<{#_start_bit}, {#end}>(&#storage)
+                            BitsSpan::Full => {
+                                let end = min(&quote! { (#_start_bit) + (#full_bits) }, _end_bit);
+                                quote_spanned! {
+                                    ident.span() =>
+                                    <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
+                                        ::bits::<{#_start_bit}, {#end}>(&#storage)
+                                }
                             }
-                        }
+                        };
                     }
-                    #[cfg(not(feature = "gce"))]
-                    unreachable!()
-                } else {
+
                     match bits_span {
                         BitsSpan::Single(bit) => {
                             quote_spanned! {
@@ -390,13 +420,17 @@ impl Field {
                 };
 
                 let unsafe_ = get_kind.is_unsafe().then(|| quote! { unsafe }).into_iter();
+                let const_ = self
+                    .has_const_getter()
+                    .then(|| quote! { const })
+                    .into_iter();
                 let asserts = asserts.get();
                 Some(quote! {
                     #(#attrs)*
                     #[inline]
                     #[allow(clippy::identity_op)]
                     #[allow(unused_braces)]
-                    #vis #(#unsafe_)* fn #ident(&self) -> #output_ty #where_clause {
+                    #vis #(#const_)* #(#unsafe_)* fn #ident(&self) -> #output_ty #where_clause {
                         #asserts
                         let raw_value = #get_raw_value;
                         #output
@@ -435,13 +469,17 @@ impl Field {
                     );
 
                     let ref_fn_ident = format_ident!("{}_ref", ident);
+                    let const_ = self
+                        .has_const_getter()
+                        .then(|| quote! { const })
+                        .into_iter();
                     let asserts = asserts.get();
                     quote! {
                         #(#attrs)*
                         #[inline]
                         #[allow(clippy::identity_op)]
                         #[allow(unused_braces)]
-                        #vis fn #ref_fn_ident(&'_ self)
+                        #vis #(#const_)* fn #ref_fn_ident(&'_ self)
                             -> <#field_ty as ::proc_bitfield::NestableBitfield<
                                 #storage_ty, {#start}, {#end}
                             >>::Nested<'_> #where_clause {
@@ -453,6 +491,10 @@ impl Field {
                 #[cfg(not(feature = "gce"))]
                 let ref_getter = quote! {};
 
+                let const_ = self
+                    .has_const_getter()
+                    .then(|| quote! { const })
+                    .into_iter();
                 let asserts = asserts.get();
                 Some(quote! {
                     #ref_getter
@@ -461,15 +503,13 @@ impl Field {
                     #[inline]
                     #[allow(clippy::identity_op)]
                     #[allow(unused_braces)]
-                    #vis fn #ident(&self) -> #field_ty #where_clause {
+                    #vis #(#const_)* fn #ident(&self) -> #field_ty #where_clause {
                         #asserts
                         let raw_value = <#storage_ty as ::proc_bitfield::Bits<
                                 <#field_ty as ::proc_bitfield::Bitfield>::Storage
                             >>::bits::<{#start}, {#end}>(&#storage);
                         <#field_ty>::__from_storage(raw_value)
                     }
-
-
                 })
             }
         }
@@ -483,8 +523,11 @@ impl Field {
         storage: &proc_macro2::TokenStream,
         storage_ty: &Type,
         full_bits: &proc_macro2::TokenStream,
-        start_end_bits: Option<(&proc_macro2::TokenStream, &proc_macro2::TokenStream)>,
         allows_with: bool,
+        #[cfg(feature = "gce")] start_end_bits: Option<(
+            &proc_macro2::TokenStream,
+            &proc_macro2::TokenStream,
+        )>,
     ) -> Option<proc_macro2::TokenStream> {
         let Field {
             attrs,
@@ -642,67 +685,66 @@ impl Field {
                         AccessorKind::TryGetFn { .. } | AccessorKind::Disabled => unreachable!(),
                     };
 
-                let (with_raw_value, set_raw_value) = if let Some((_start_bit, _end_bit)) =
-                    start_end_bits
-                {
+                #[allow(unused_labels)]
+                let (with_raw_value, set_raw_value) = 'with_set_raw_value: {
                     #[cfg(feature = "gce")]
-                    match bits_span {
-                        BitsSpan::Single(bit) => (
-                            quote_spanned! {
-                                ident.span() =>
-                                if (#_start_bit) + (#bit) < (#_end_bit) {
-                                    <#storage_ty as ::proc_bitfield::WithBit>
-                                        ::with_bit::<{#bit}>(#storage, #raw_value)
-                                } else {
-                                    #storage
-                                }
-                            },
-                            quote_spanned! {
-                                ident.span() =>
-                                if (#_start_bit) + (#bit) < (#_end_bit) {
-                                    <#storage_ty as ::proc_bitfield::SetBit>
-                                        ::set_bit::<{#bit}>(&mut #storage, #raw_value)
-                                }
-                            },
-                        ),
-                        BitsSpan::Range { start, end } => {
-                            let start = quote! { (#_start_bit) + (#start) };
-                            let end = min(&quote! { (#_start_bit) + (#end) }, _end_bit);
-                            (
+                    if let Some((_start_bit, _end_bit)) = start_end_bits {
+                        break 'with_set_raw_value match bits_span {
+                            BitsSpan::Single(bit) => (
                                 quote_spanned! {
                                     ident.span() =>
-                                    <#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
-                                        ::with_bits::<{#start}, {#end}>(#storage, #raw_value)
+                                    if (#_start_bit) + (#bit) < (#_end_bit) {
+                                        <#storage_ty as ::proc_bitfield::WithBit>
+                                            ::with_bit::<{#bit}>(#storage, #raw_value)
+                                    } else {
+                                        #storage
+                                    }
                                 },
                                 quote_spanned! {
                                     ident.span() =>
-                                    <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
-                                        ::set_bits::<{#start}, {#end}>(&mut #storage, #raw_value)
+                                    if (#_start_bit) + (#bit) < (#_end_bit) {
+                                        <#storage_ty as ::proc_bitfield::SetBit>
+                                            ::set_bit::<{#bit}>(&mut #storage, #raw_value)
+                                    }
                                 },
-                            )
-                        }
-                        BitsSpan::Full => {
-                            let end = min(&quote! { (#_start_bit) + (#full_bits) }, _end_bit);
-                            (
-                                quote_spanned! {
-                                    ident.span() =>
-                                    <#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
-                                        ::with_bits::<0, {#end}>(#storage, #raw_value)
-                                },
-                                quote_spanned! {
-                                    ident.span() =>
-                                    <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
-                                        ::set_bits::<{#_start_bit}, {#end}>(
-                                            &mut #storage,
-                                            #raw_value,
-                                        )
-                                },
-                            )
-                        }
+                            ),
+                            BitsSpan::Range { start, end } => {
+                                let start = quote! { (#_start_bit) + (#start) };
+                                let end = min(&quote! { (#_start_bit) + (#end) }, _end_bit);
+                                (
+                                    quote_spanned! {
+                                        ident.span() =>
+                                        <#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
+                                            ::with_bits::<{#start}, {#end}>(#storage, #raw_value)
+                                    },
+                                    quote_spanned! {
+                                        ident.span() =>
+                                        <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
+                                            ::set_bits::<{#start}, {#end}>(&mut #storage, #raw_value)
+                                    },
+                                )
+                            }
+                            BitsSpan::Full => {
+                                let end = min(&quote! { (#_start_bit) + (#full_bits) }, _end_bit);
+                                (
+                                    quote_spanned! {
+                                        ident.span() =>
+                                        <#storage_ty as ::proc_bitfield::WithBits<#field_ty>>
+                                            ::with_bits::<0, {#end}>(#storage, #raw_value)
+                                    },
+                                    quote_spanned! {
+                                        ident.span() =>
+                                        <#storage_ty as ::proc_bitfield::SetBits<#field_ty>>
+                                            ::set_bits::<{#_start_bit}, {#end}>(
+                                                &mut #storage,
+                                                #raw_value,
+                                            )
+                                    },
+                                )
+                            }
+                        };
                     }
-                    #[cfg(not(feature = "gce"))]
-                    unreachable!()
-                } else {
+
                     match bits_span {
                         BitsSpan::Single(bit) => (
                             quote_spanned! {
@@ -745,6 +787,10 @@ impl Field {
 
                 let modifier = allows_with.then(|| {
                     let unsafe_ = set_kind.is_unsafe().then(|| quote! { unsafe });
+                    let const_ = self
+                        .has_const_setter()
+                        .then(|| quote! { const })
+                        .into_iter();
                     let asserts = asserts.get();
                     quote! {
                         #(#attrs)*
@@ -752,7 +798,7 @@ impl Field {
                         #[must_use]
                         #[allow(clippy::identity_op)]
                         #[allow(unused_braces)]
-                        #vis #unsafe_ fn #with_fn_ident(self, value: #input_ty)
+                        #vis #(#const_)* #unsafe_ fn #with_fn_ident(self, value: #input_ty)
                             -> #with_output_ty #where_clause
                         {
                             #asserts
@@ -763,6 +809,10 @@ impl Field {
                 });
 
                 let unsafe_ = set_kind.is_unsafe().then(|| quote! { unsafe });
+                let const_ = self
+                    .has_const_setter()
+                    .then(|| quote! { const })
+                    .into_iter();
                 let asserts = asserts.get();
                 Some(quote! {
                     #modifier
@@ -771,8 +821,8 @@ impl Field {
                     #[inline]
                     #[allow(clippy::identity_op)]
                     #[allow(unused_braces)]
-                    #vis #unsafe_ fn #set_fn_ident(&mut self, value: #input_ty) -> #set_output_ty
-                        #where_clause
+                    #vis #(#const_)* #unsafe_ fn #set_fn_ident(&mut self, value: #input_ty)
+                        -> #set_output_ty #where_clause
                     {
                         #asserts
                         #set_raw_value;
@@ -810,13 +860,17 @@ impl Field {
                     );
 
                     let mut_fn_ident = format_ident!("{}_mut", ident);
+                    let const_ = self
+                        .has_const_setter()
+                        .then(|| quote! { const })
+                        .into_iter();
                     let asserts = asserts.get();
                     quote! {
                         #(#attrs)*
                         #[inline]
                         #[allow(clippy::identity_op)]
                         #[allow(unused_braces)]
-                        #vis fn #mut_fn_ident(&'_ mut self)
+                        #vis #(#const_)* fn #mut_fn_ident(&'_ mut self)
                             -> <#field_ty as ::proc_bitfield::NestableMutBitfield<
                                 #storage_ty, {#start}, {#end}
                             >>::NestedMut<'_> #where_clause
@@ -832,6 +886,10 @@ impl Field {
                 let mut_getter = quote! {};
 
                 let modifier = allows_with.then(|| {
+                    let const_ = self
+                        .has_const_setter()
+                        .then(|| quote! { const })
+                        .into_iter();
                     let asserts = asserts.get();
                     quote! {
                         #(#attrs)*
@@ -839,7 +897,9 @@ impl Field {
                         #[must_use]
                         #[allow(clippy::identity_op)]
                         #[allow(unused_braces)]
-                        #vis fn #with_fn_ident(self, value: #field_ty) -> Self #where_clause {
+                        #vis #(#const_)* fn #with_fn_ident(self, value: #field_ty)
+                            -> Self #where_clause
+                        {
                             #asserts
                             Self::__from_storage(
                                 <#storage_ty as ::proc_bitfield::WithBits<
@@ -850,6 +910,10 @@ impl Field {
                     }
                 });
 
+                let const_ = self
+                    .has_const_setter()
+                    .then(|| quote! { const })
+                    .into_iter();
                 let asserts = asserts.get();
                 Some(quote! {
                     #mut_getter
@@ -860,7 +924,7 @@ impl Field {
                     #[inline]
                     #[allow(clippy::identity_op)]
                     #[allow(unused_braces)]
-                    #vis fn #set_fn_ident(&mut self, value: #field_ty) #where_clause {
+                    #vis #(#const_)* fn #set_fn_ident(&mut self, value: #field_ty) #where_clause {
                         #asserts
                         <#storage_ty as ::proc_bitfield::SetBits<
                             <#field_ty as ::proc_bitfield::Bitfield>::Storage>
@@ -890,6 +954,16 @@ struct Struct {
     fields: Punctuated<Field, Token![,]>,
 }
 
+fn check_has_nightly(span: Span) -> syn::Result<()> {
+    if !cfg!(feature = "nightly") {
+        return Err(Error::new(
+            span,
+            "const fns can only be generated with the \"nightly\" feature enabled",
+        ));
+    }
+    Ok(())
+}
+
 impl Parse for Struct {
     fn parse(input: ParseStream) -> Result<Self> {
         let outer_attrs = input.call(Attribute::parse_outer)?;
@@ -900,8 +974,7 @@ impl Parse for Struct {
         let mut generics = input.parse::<Generics>()?;
 
         let (storage_vis, storage_ty) = {
-            let content;
-            parenthesized!(content in input);
+            let content = parse_parens(input)?;
             (content.parse()?, content.parse()?)
         };
 
@@ -911,12 +984,20 @@ impl Parse for Struct {
             into_storage: false,
             deref_storage: false,
         };
+        #[cfg(feature = "nightly")]
+        let mut fields_use_const_fns_by_default = false;
         if input.parse::<Token![:]>().is_ok() {
             loop {
                 if input.is_empty() {
                     break;
                 }
-                if input.parse::<kw::Debug>().is_ok() {
+                if let Ok(kw) = input.parse::<Token![const]>() {
+                    check_has_nightly(kw.span())?;
+                    #[cfg(feature = "nightly")]
+                    {
+                        fields_use_const_fns_by_default = true;
+                    }
+                } else if input.parse::<kw::Debug>().is_ok() {
                     auto_impls.debug = true;
                 } else if input.parse::<kw::FromStorage>().is_ok() {
                     auto_impls.from_storage = true;
@@ -942,350 +1023,348 @@ impl Parse for Struct {
             return Err(lookahead.error());
         }
 
-        let content;
-        braced!(content in input);
+        let content = parse_braces(input)?;
         assert!(
             content.call(Attribute::parse_inner)?.is_empty(),
             "Inner attributes are not supported right now"
         );
-        let fields = content.parse_terminated(
-            |input| {
-                let attrs = input.call(Attribute::parse_outer)?;
-                let vis = input.parse()?;
-                let ident = input.parse()?;
-                input.parse::<Token![:]>()?;
-                let is_nested = input.parse::<kw::nested>().is_ok();
-                let ty = input.parse::<Type>()?;
+        let fields = parse_terminated(&content, |input: ParseStream| {
+            let attrs = input.call(Attribute::parse_outer)?;
+            let vis = input.parse()?;
+            let ident = input.parse()?;
+            input.parse::<Token![:]>()?;
+            let is_nested = input.parse::<kw::nested>().is_ok();
+            let ty = input.parse::<Type>()?;
 
-                let content = if is_nested {
-                    let mut is_readable = true;
-                    let mut is_writable = true;
-                    let lookahead = input.lookahead1();
-                    if lookahead.peek(token::Bracket) {
-                        let options_content;
-                        bracketed!(options_content in input);
+            #[cfg(feature = "nightly")]
+            let mut uses_const_fns = fields_use_const_fns_by_default;
 
-                        macro_rules! check_accessor_conflict {
-                            ($ident: ident, $name: literal, $other: ident, $span: ident) => {
-                                if !$ident {
-                                    return Err(Error::new(
-                                        $span,
-                                        concat!("Duplicate ", $name, " specifiers"),
-                                    ));
-                                }
-                                if !$other {
-                                    return Err(Error::new(
-                                        $span,
-                                        "Conflicting read_only and write_only specifiers",
-                                    ));
-                                }
-                            };
-                        }
-
-                        while !options_content.is_empty() {
-                            let lookahead = options_content.lookahead1();
-                            if lookahead.peek(kw::read_only) || lookahead.peek(kw::ro) {
-                                let span = options_content
-                                    .parse::<kw::read_only>()
-                                    .map(|kw| kw.span)
-                                    .or_else(|_| {
-                                        options_content.parse::<kw::ro>().map(|kw| kw.span)
-                                    })?;
-                                check_accessor_conflict!(
-                                    is_writable,
-                                    "read_only",
-                                    is_readable,
-                                    span
-                                );
-                                is_writable = false;
-                            } else if lookahead.peek(kw::write_only) || lookahead.peek(kw::wo) {
-                                let span = options_content
-                                    .parse::<kw::write_only>()
-                                    .map(|kw| kw.span)
-                                    .or_else(|_| {
-                                        options_content.parse::<kw::wo>().map(|kw| kw.span)
-                                    })?;
-                                check_accessor_conflict!(
-                                    is_readable,
-                                    "write_only",
-                                    is_writable,
-                                    span
-                                );
-                                is_readable = false;
-                            } else {
-                                return Err(lookahead.error());
+            let content = if is_nested {
+                let mut is_readable = true;
+                let mut is_writable = true;
+                if let Ok(options_content) = parse_brackets(input) {
+                    macro_rules! check_accessor_conflict {
+                        ($ident: ident, $name: literal, $other: ident, $span: ident) => {
+                            if !$ident {
+                                return Err(Error::new(
+                                    $span,
+                                    concat!("Duplicate ", $name, " specifiers"),
+                                ));
                             }
-
-                            let had_comma = options_content.parse::<Token![,]>().is_ok();
-                            if !options_content.is_empty() && !had_comma {
-                                return Err(
-                                    options_content.error("expected comma between field options")
-                                );
+                            if !$other {
+                                return Err(Error::new(
+                                    $span,
+                                    "Conflicting read_only and write_only specifiers",
+                                ));
                             }
-                        }
+                        };
                     }
-                    FieldContent::Nested(NestedField {
-                        is_readable,
-                        is_writable,
-                    })
-                } else {
-                    let mut get = AccessorKind::Default;
-                    let mut set = AccessorKind::Default;
-                    let lookahead = input.lookahead1();
-                    if lookahead.peek(token::Bracket) {
-                        let options_content;
-                        bracketed!(options_content in input);
 
-                        macro_rules! check_conversion_ty_conflict {
-                            ($($ident: ident),*; $span: expr) => {
-                                if $(!matches!(&$ident, AccessorKind::Default))||* {
-                                    return Err(Error::new(
-                                        $span,
-                                        "Conflicting conversion type definitions",
-                                    ));
-                                }
-                            };
-                        }
-
-                        macro_rules! check_accessor_conflict {
-                            ($ident: ident, $name: literal, $other: ident, $span: ident) => {
-                                if matches!(&$ident, AccessorKind::Disabled) {
-                                    return Err(Error::new(
-                                        $span,
-                                        concat!("Duplicate ", $name, " specifiers"),
-                                    ));
-                                }
-                                if matches!(&$other, AccessorKind::Disabled) {
-                                    return Err(Error::new(
-                                        $span,
-                                        "Conflicting read_only and write_only specifiers",
-                                    ));
-                                }
-                            };
-                        }
-
-                        fn parse_return_ty(input: ParseStream) -> Result<Result<Type>> {
-                            if let Err(err) = input.parse::<Token![->]>() {
-                                return Ok(Err(err));
+                    while !options_content.is_empty() {
+                        let lookahead = options_content.lookahead1();
+                        if lookahead.peek(Token![const]) {
+                            check_has_nightly(input.span())?;
+                            #[cfg(feature = "nightly")]
+                            {
+                                uses_const_fns = true;
                             }
-                            Ok(input.parse())
-                        }
-
-                        fn parse_parenthesized_ty(input: ParseStream) -> Result<Result<Type>> {
-                            Ok(match parse_parens(input) {
-                                Ok(content) => content.parse(),
-                                Err(err) => Err(err),
-                            })
-                        }
-
-                        while !options_content.is_empty() {
-                            // Infallible conversions
-                            if let Ok(kw) = options_content.parse::<kw::get>() {
-                                check_conversion_ty_conflict!(get; kw.span);
-                                get = AccessorKind::ConvTy(options_content.parse()?);
-                            } else if let Ok(kw) = options_content.parse::<kw::set>() {
-                                check_conversion_ty_conflict!(set; kw.span);
-                                set = AccessorKind::ConvTy(options_content.parse()?);
+                        } else if lookahead.peek(kw::no_const) {
+                            #[cfg(feature = "nightly")]
+                            {
+                                uses_const_fns = false;
                             }
-                            // Unsafe conversions
-                            else if let Ok(kw) = options_content.parse::<kw::unsafe_get>() {
-                                check_conversion_ty_conflict!(get; kw.span);
-                                let has_safe_accessor =
-                                    options_content.parse::<Token![!]>().is_ok();
-                                get = AccessorKind::UnsafeConvTy {
-                                    ty: options_content.parse()?,
-                                    has_safe_accessor,
-                                };
-                            } else if let Ok(kw) = options_content.parse::<kw::unsafe_set>() {
-                                check_conversion_ty_conflict!(set; kw.span);
-                                let has_safe_accessor =
-                                    options_content.parse::<Token![!]>().is_ok();
-                                set = AccessorKind::UnsafeConvTy {
-                                    ty: options_content.parse()?,
-                                    has_safe_accessor,
-                                };
-                            } else if let Ok(kw) = options_content.parse::<kw::unsafe_both>() {
-                                check_conversion_ty_conflict!(get, set; kw.span);
-                                let has_safe_accessor =
-                                    options_content.parse::<Token![!]>().is_ok();
-                                let ty: Type = options_content.parse()?;
-                                get = AccessorKind::UnsafeConvTy {
-                                    ty: ty.clone(),
-                                    has_safe_accessor,
-                                };
-                                set = AccessorKind::UnsafeConvTy {
-                                    ty,
-                                    has_safe_accessor,
-                                };
-                            } else if let Ok(kw) = options_content.parse::<Token![unsafe]>() {
-                                check_conversion_ty_conflict!(get, set; kw.span);
-                                let has_safe_accessor =
-                                    options_content.parse::<Token![!]>().is_ok();
-                                let ty: Type = options_content.parse()?;
-                                get = AccessorKind::UnsafeConvTy {
-                                    ty: ty.clone(),
-                                    has_safe_accessor,
-                                };
-                                set = AccessorKind::ConvTy(ty);
-                            }
-                            // Fallible conversions
-                            else if let Ok(kw) = options_content.parse::<kw::try_get>() {
-                                check_conversion_ty_conflict!(get; kw.span);
-                                get = AccessorKind::TryConvTy(options_content.parse()?);
-                            } else if let Ok(kw) = options_content.parse::<kw::try_set>() {
-                                check_conversion_ty_conflict!(set; kw.span);
-                                set = AccessorKind::TryConvTy(options_content.parse()?);
-                            } else if let Ok(kw) = options_content.parse::<kw::try_both>() {
-                                check_conversion_ty_conflict!(get, set; kw.span);
-                                let ty: Type = options_content.parse()?;
-                                get = AccessorKind::TryConvTy(ty.clone());
-                                set = AccessorKind::TryConvTy(ty);
-                            } else if let Ok(kw) = options_content.parse::<Token![try]>() {
-                                check_conversion_ty_conflict!(get, set; kw.span);
-                                let ty: Type = options_content.parse()?;
-                                get = AccessorKind::TryConvTy(ty.clone());
-                                set = AccessorKind::ConvTy(ty);
-                            }
-                            // Unwrapping conversions
-                            else if let Ok(kw) = options_content.parse::<kw::unwrap_get>() {
-                                check_conversion_ty_conflict!(get; kw.span);
-                                get = AccessorKind::UnwrapConvTy(options_content.parse()?);
-                            } else if let Ok(kw) = options_content.parse::<kw::unwrap_set>() {
-                                check_conversion_ty_conflict!(set; kw.span);
-                                set = AccessorKind::UnwrapConvTy(options_content.parse()?);
-                            } else if let Ok(kw) = options_content.parse::<kw::unwrap_both>() {
-                                check_conversion_ty_conflict!(get, set; kw.span);
-                                let ty: Type = options_content.parse()?;
-                                get = AccessorKind::UnwrapConvTy(ty.clone());
-                                set = AccessorKind::UnwrapConvTy(ty);
-                            } else if let Ok(kw) = options_content.parse::<kw::unwrap>() {
-                                check_conversion_ty_conflict!(get, set; kw.span);
-                                let ty: Type = options_content.parse()?;
-                                get = AccessorKind::UnwrapConvTy(ty.clone());
-                                set = AccessorKind::ConvTy(ty);
-                            }
-                            // Infallible fn conversions
-                            else if let Ok(kw) = options_content.parse::<kw::get_fn>() {
-                                check_conversion_ty_conflict!(get; kw.span);
-                                let fn_ = parse_accessor_fn(&options_content)?;
-                                let ty = parse_return_ty(&options_content)?
-                                    .unwrap_or_else(|_| ty.clone());
-                                get = AccessorKind::ConvFn { fn_, ty };
-                            } else if let Ok(kw) = options_content.parse::<kw::set_fn>() {
-                                check_conversion_ty_conflict!(set; kw.span);
-                                let fn_ = parse_accessor_fn(&options_content)?;
-                                let ty = parse_parenthesized_ty(&options_content)?
-                                    .unwrap_or_else(|_| ty.clone());
-                                set = AccessorKind::ConvFn { fn_, ty };
-                            }
-                            // Unsafe fn conversions
-                            else if let Ok(kw) = options_content.parse::<kw::unsafe_get_fn>() {
-                                check_conversion_ty_conflict!(get; kw.span);
-                                let has_safe_accessor =
-                                    options_content.parse::<Token![!]>().is_ok();
-                                let fn_ = parse_accessor_fn(&options_content)?;
-                                let ty = parse_return_ty(&options_content)?
-                                    .unwrap_or_else(|_| ty.clone());
-                                get = AccessorKind::UnsafeConvFn {
-                                    fn_,
-                                    ty,
-                                    has_safe_accessor,
-                                };
-                            } else if let Ok(kw) = options_content.parse::<kw::unsafe_set_fn>() {
-                                check_conversion_ty_conflict!(set; kw.span);
-                                let has_safe_accessor =
-                                    options_content.parse::<Token![!]>().is_ok();
-                                let fn_ = parse_accessor_fn(&options_content)?;
-                                let ty = parse_parenthesized_ty(&options_content)?
-                                    .unwrap_or_else(|_| ty.clone());
-                                set = AccessorKind::UnsafeConvFn {
-                                    fn_,
-                                    ty,
-                                    has_safe_accessor,
-                                };
-                            }
-                            // Fallible fn conversions
-                            else if let Ok(kw) = options_content.parse::<kw::try_get_fn>() {
-                                check_conversion_ty_conflict!(get; kw.span);
-                                let fn_ = parse_accessor_fn(&options_content)?;
-                                let result_ty = parse_return_ty(&options_content)??;
-                                get = AccessorKind::TryGetFn { fn_, result_ty };
-                            } else if let Ok(kw) = options_content.parse::<kw::try_set_fn>() {
-                                check_conversion_ty_conflict!(set; kw.span);
-                                let fn_ = parse_accessor_fn(&options_content)?;
-                                let input_ty = parse_parenthesized_ty(&options_content)?
-                                    .unwrap_or_else(|_| ty.clone());
-                                let result_ty = parse_return_ty(&options_content)??;
-                                set = AccessorKind::TrySetFn {
-                                    fn_,
-                                    input_ty,
-                                    result_ty,
-                                };
-                            }
-                            // Unwrapping fn conversions
-                            else if let Ok(kw) = options_content.parse::<kw::unwrap_get_fn>() {
-                                check_conversion_ty_conflict!(get; kw.span);
-                                let fn_ = parse_accessor_fn(&options_content)?;
-                                let ty = parse_return_ty(&options_content)?
-                                    .unwrap_or_else(|_| ty.clone());
-                                get = AccessorKind::UnwrapConvFn { fn_, ty };
-                            } else if let Ok(kw) = options_content.parse::<kw::unwrap_set_fn>() {
-                                check_conversion_ty_conflict!(set; kw.span);
-                                let fn_ = parse_accessor_fn(&options_content)?;
-                                let ty = parse_parenthesized_ty(&options_content)?
-                                    .unwrap_or_else(|_| ty.clone());
-                                set = AccessorKind::UnwrapConvFn { fn_, ty };
-                            }
-                            // Access restrictions
-                            else if let Ok(span) = options_content
+                        } else if lookahead.peek(kw::read_only) || lookahead.peek(kw::ro) {
+                            let span = options_content
                                 .parse::<kw::read_only>()
                                 .map(|kw| kw.span)
-                                .or_else(|_| options_content.parse::<kw::ro>().map(|kw| kw.span))
-                            {
-                                check_accessor_conflict!(set, "read_only", get, span);
-                                set = AccessorKind::Disabled;
-                            } else if let Ok(span) = options_content
+                                .or_else(|_| {
+                                options_content.parse::<kw::ro>().map(|kw| kw.span)
+                            })?;
+                            check_accessor_conflict!(is_writable, "read_only", is_readable, span);
+                            is_writable = false;
+                        } else if lookahead.peek(kw::write_only) || lookahead.peek(kw::wo) {
+                            let span = options_content
                                 .parse::<kw::write_only>()
                                 .map(|kw| kw.span)
-                                .or_else(|_| options_content.parse::<kw::wo>().map(|kw| kw.span))
-                            {
-                                check_accessor_conflict!(get, "write_only", set, span);
-                                get = AccessorKind::Disabled;
-                            }
-                            // Infallible conversion (without keywords)
-                            else {
-                                let ty: Type = options_content.parse()?;
-                                check_conversion_ty_conflict!(get, set; ty.span());
-                                get = AccessorKind::ConvTy(ty.clone());
-                                set = AccessorKind::ConvTy(ty);
-                            }
+                                .or_else(|_| options_content.parse::<kw::wo>().map(|kw| kw.span))?;
+                            check_accessor_conflict!(is_readable, "write_only", is_writable, span);
+                            is_readable = false;
+                        } else {
+                            return Err(lookahead.error());
+                        }
 
-                            let had_comma = options_content.parse::<Token![,]>().is_ok();
-                            if !options_content.is_empty() && !had_comma {
-                                return Err(
-                                    options_content.error("expected comma between field options")
-                                );
-                            }
+                        let had_comma = options_content.parse::<Token![,]>().is_ok();
+                        if !options_content.is_empty() && !had_comma {
+                            return Err(
+                                options_content.error("expected comma between field options")
+                            );
                         }
                     }
-                    FieldContent::Single(SingleField {
-                        get_kind: get,
-                        set_kind: set,
-                    })
-                };
-                input.parse::<Token![@]>()?;
-                let bits = input.parse()?;
-                Ok(Field {
-                    attrs,
-                    vis,
-                    ident,
-                    bits,
-                    ty,
-                    content,
+                }
+                FieldContent::Nested(NestedField {
+                    is_readable,
+                    is_writable,
                 })
-            },
-            Token![,],
-        )?;
+            } else {
+                let mut get = AccessorKind::Default;
+                let mut set = AccessorKind::Default;
+                if let Ok(options_content) = parse_brackets(input) {
+                    macro_rules! check_conversion_ty_conflict {
+                                ($($ident: ident),*; $span: expr) => {
+                                    if $(!matches!(&$ident, AccessorKind::Default))||* {
+                                        return Err(Error::new(
+                                            $span,
+                                            "Conflicting conversion type definitions",
+                                        ));
+                                    }
+                                };
+                            }
+
+                    macro_rules! check_accessor_conflict {
+                        ($ident: ident, $name: literal, $other: ident, $span: ident) => {
+                            if matches!(&$ident, AccessorKind::Disabled) {
+                                return Err(Error::new(
+                                    $span,
+                                    concat!("Duplicate ", $name, " specifiers"),
+                                ));
+                            }
+                            if matches!(&$other, AccessorKind::Disabled) {
+                                return Err(Error::new(
+                                    $span,
+                                    "Conflicting read_only and write_only specifiers",
+                                ));
+                            }
+                        };
+                    }
+
+                    fn parse_return_ty(input: ParseStream) -> Result<Result<Type>> {
+                        if let Err(err) = input.parse::<Token![->]>() {
+                            return Ok(Err(err));
+                        }
+                        Ok(input.parse())
+                    }
+
+                    fn parse_parenthesized_ty(input: ParseStream) -> Result<Result<Type>> {
+                        Ok(match parse_parens(input) {
+                            Ok(content) => content.parse(),
+                            Err(err) => Err(err),
+                        })
+                    }
+
+                    while !options_content.is_empty() {
+                        if let Ok(kw) = options_content.parse::<Token![const]>() {
+                            check_has_nightly(kw.span())?;
+                            #[cfg(feature = "nightly")]
+                            {
+                                uses_const_fns = true;
+                            }
+                        } else if options_content.parse::<kw::no_const>().is_ok() {
+                            #[cfg(feature = "nightly")]
+                            {
+                                uses_const_fns = false;
+                            }
+                        }
+                        // Infallible conversions
+                        else if let Ok(kw) = options_content.parse::<kw::get>() {
+                            check_conversion_ty_conflict!(get; kw.span);
+                            get = AccessorKind::ConvTy(options_content.parse()?);
+                        } else if let Ok(kw) = options_content.parse::<kw::set>() {
+                            check_conversion_ty_conflict!(set; kw.span);
+                            set = AccessorKind::ConvTy(options_content.parse()?);
+                        }
+                        // Unsafe conversions
+                        else if let Ok(kw) = options_content.parse::<kw::unsafe_get>() {
+                            check_conversion_ty_conflict!(get; kw.span);
+                            let has_safe_accessor = options_content.parse::<Token![!]>().is_ok();
+                            get = AccessorKind::UnsafeConvTy {
+                                ty: options_content.parse()?,
+                                has_safe_accessor,
+                            };
+                        } else if let Ok(kw) = options_content.parse::<kw::unsafe_set>() {
+                            check_conversion_ty_conflict!(set; kw.span);
+                            let has_safe_accessor = options_content.parse::<Token![!]>().is_ok();
+                            set = AccessorKind::UnsafeConvTy {
+                                ty: options_content.parse()?,
+                                has_safe_accessor,
+                            };
+                        } else if let Ok(kw) = options_content.parse::<kw::unsafe_both>() {
+                            check_conversion_ty_conflict!(get, set; kw.span);
+                            let has_safe_accessor = options_content.parse::<Token![!]>().is_ok();
+                            let ty: Type = options_content.parse()?;
+                            get = AccessorKind::UnsafeConvTy {
+                                ty: ty.clone(),
+                                has_safe_accessor,
+                            };
+                            set = AccessorKind::UnsafeConvTy {
+                                ty,
+                                has_safe_accessor,
+                            };
+                        } else if let Ok(kw) = options_content.parse::<Token![unsafe]>() {
+                            check_conversion_ty_conflict!(get, set; kw.span);
+                            let has_safe_accessor = options_content.parse::<Token![!]>().is_ok();
+                            let ty: Type = options_content.parse()?;
+                            get = AccessorKind::UnsafeConvTy {
+                                ty: ty.clone(),
+                                has_safe_accessor,
+                            };
+                            set = AccessorKind::ConvTy(ty);
+                        }
+                        // Fallible conversions
+                        else if let Ok(kw) = options_content.parse::<kw::try_get>() {
+                            check_conversion_ty_conflict!(get; kw.span);
+                            get = AccessorKind::TryConvTy(options_content.parse()?);
+                        } else if let Ok(kw) = options_content.parse::<kw::try_set>() {
+                            check_conversion_ty_conflict!(set; kw.span);
+                            set = AccessorKind::TryConvTy(options_content.parse()?);
+                        } else if let Ok(kw) = options_content.parse::<kw::try_both>() {
+                            check_conversion_ty_conflict!(get, set; kw.span);
+                            let ty: Type = options_content.parse()?;
+                            get = AccessorKind::TryConvTy(ty.clone());
+                            set = AccessorKind::TryConvTy(ty);
+                        } else if let Ok(kw) = options_content.parse::<Token![try]>() {
+                            check_conversion_ty_conflict!(get, set; kw.span);
+                            let ty: Type = options_content.parse()?;
+                            get = AccessorKind::TryConvTy(ty.clone());
+                            set = AccessorKind::ConvTy(ty);
+                        }
+                        // Unwrapping conversions
+                        else if let Ok(kw) = options_content.parse::<kw::unwrap_get>() {
+                            check_conversion_ty_conflict!(get; kw.span);
+                            get = AccessorKind::UnwrapConvTy(options_content.parse()?);
+                        } else if let Ok(kw) = options_content.parse::<kw::unwrap_set>() {
+                            check_conversion_ty_conflict!(set; kw.span);
+                            set = AccessorKind::UnwrapConvTy(options_content.parse()?);
+                        } else if let Ok(kw) = options_content.parse::<kw::unwrap_both>() {
+                            check_conversion_ty_conflict!(get, set; kw.span);
+                            let ty: Type = options_content.parse()?;
+                            get = AccessorKind::UnwrapConvTy(ty.clone());
+                            set = AccessorKind::UnwrapConvTy(ty);
+                        } else if let Ok(kw) = options_content.parse::<kw::unwrap>() {
+                            check_conversion_ty_conflict!(get, set; kw.span);
+                            let ty: Type = options_content.parse()?;
+                            get = AccessorKind::UnwrapConvTy(ty.clone());
+                            set = AccessorKind::ConvTy(ty);
+                        }
+                        // Infallible fn conversions
+                        else if let Ok(kw) = options_content.parse::<kw::get_fn>() {
+                            check_conversion_ty_conflict!(get; kw.span);
+                            let fn_ = parse_accessor_fn(&options_content)?;
+                            let ty =
+                                parse_return_ty(&options_content)?.unwrap_or_else(|_| ty.clone());
+                            get = AccessorKind::ConvFn { fn_, ty };
+                        } else if let Ok(kw) = options_content.parse::<kw::set_fn>() {
+                            check_conversion_ty_conflict!(set; kw.span);
+                            let fn_ = parse_accessor_fn(&options_content)?;
+                            let ty = parse_parenthesized_ty(&options_content)?
+                                .unwrap_or_else(|_| ty.clone());
+                            set = AccessorKind::ConvFn { fn_, ty };
+                        }
+                        // Unsafe fn conversions
+                        else if let Ok(kw) = options_content.parse::<kw::unsafe_get_fn>() {
+                            check_conversion_ty_conflict!(get; kw.span);
+                            let has_safe_accessor = options_content.parse::<Token![!]>().is_ok();
+                            let fn_ = parse_accessor_fn(&options_content)?;
+                            let ty =
+                                parse_return_ty(&options_content)?.unwrap_or_else(|_| ty.clone());
+                            get = AccessorKind::UnsafeConvFn {
+                                fn_,
+                                ty,
+                                has_safe_accessor,
+                            };
+                        } else if let Ok(kw) = options_content.parse::<kw::unsafe_set_fn>() {
+                            check_conversion_ty_conflict!(set; kw.span);
+                            let has_safe_accessor = options_content.parse::<Token![!]>().is_ok();
+                            let fn_ = parse_accessor_fn(&options_content)?;
+                            let ty = parse_parenthesized_ty(&options_content)?
+                                .unwrap_or_else(|_| ty.clone());
+                            set = AccessorKind::UnsafeConvFn {
+                                fn_,
+                                ty,
+                                has_safe_accessor,
+                            };
+                        }
+                        // Fallible fn conversions
+                        else if let Ok(kw) = options_content.parse::<kw::try_get_fn>() {
+                            check_conversion_ty_conflict!(get; kw.span);
+                            let fn_ = parse_accessor_fn(&options_content)?;
+                            let result_ty = parse_return_ty(&options_content)??;
+                            get = AccessorKind::TryGetFn { fn_, result_ty };
+                        } else if let Ok(kw) = options_content.parse::<kw::try_set_fn>() {
+                            check_conversion_ty_conflict!(set; kw.span);
+                            let fn_ = parse_accessor_fn(&options_content)?;
+                            let input_ty = parse_parenthesized_ty(&options_content)?
+                                .unwrap_or_else(|_| ty.clone());
+                            let result_ty = parse_return_ty(&options_content)??;
+                            set = AccessorKind::TrySetFn {
+                                fn_,
+                                input_ty,
+                                result_ty,
+                            };
+                        }
+                        // Unwrapping fn conversions
+                        else if let Ok(kw) = options_content.parse::<kw::unwrap_get_fn>() {
+                            check_conversion_ty_conflict!(get; kw.span);
+                            let fn_ = parse_accessor_fn(&options_content)?;
+                            let ty =
+                                parse_return_ty(&options_content)?.unwrap_or_else(|_| ty.clone());
+                            get = AccessorKind::UnwrapConvFn { fn_, ty };
+                        } else if let Ok(kw) = options_content.parse::<kw::unwrap_set_fn>() {
+                            check_conversion_ty_conflict!(set; kw.span);
+                            let fn_ = parse_accessor_fn(&options_content)?;
+                            let ty = parse_parenthesized_ty(&options_content)?
+                                .unwrap_or_else(|_| ty.clone());
+                            set = AccessorKind::UnwrapConvFn { fn_, ty };
+                        }
+                        // Access restrictions
+                        else if let Ok(span) = options_content
+                            .parse::<kw::read_only>()
+                            .map(|kw| kw.span)
+                            .or_else(|_| options_content.parse::<kw::ro>().map(|kw| kw.span))
+                        {
+                            check_accessor_conflict!(set, "read_only", get, span);
+                            set = AccessorKind::Disabled;
+                        } else if let Ok(span) = options_content
+                            .parse::<kw::write_only>()
+                            .map(|kw| kw.span)
+                            .or_else(|_| options_content.parse::<kw::wo>().map(|kw| kw.span))
+                        {
+                            check_accessor_conflict!(get, "write_only", set, span);
+                            get = AccessorKind::Disabled;
+                        }
+                        // Infallible conversion (without keywords)
+                        else {
+                            let ty: Type = options_content.parse()?;
+                            check_conversion_ty_conflict!(get, set; ty.span());
+                            get = AccessorKind::ConvTy(ty.clone());
+                            set = AccessorKind::ConvTy(ty);
+                        }
+
+                        let had_comma = options_content.parse::<Token![,]>().is_ok();
+                        if !options_content.is_empty() && !had_comma {
+                            return Err(
+                                options_content.error("expected comma between field options")
+                            );
+                        }
+                    }
+                }
+                FieldContent::Single(SingleField {
+                    get_kind: get,
+                    set_kind: set,
+                })
+            };
+            input.parse::<Token![@]>()?;
+            let bits = input.parse()?;
+            Ok(Field {
+                attrs,
+                vis,
+                ident,
+                bits,
+                ty,
+                content,
+                #[cfg(feature = "nightly")]
+                uses_const_fns,
+            })
+        })?;
 
         Ok(Struct {
             outer_attrs,
@@ -1473,10 +1552,13 @@ fn impl_bitfield_ty<'a>(
     storage_deref_ty: &Type,
     full_bits: &proc_macro2::TokenStream,
     full_bits_are_const: bool,
-    start_end_bits: Option<(&proc_macro2::TokenStream, &proc_macro2::TokenStream)>,
     fields: &Punctuated<Field, Token![,]>,
     is_writable: bool,
     allows_with: bool,
+    #[cfg(feature = "gce")] start_end_bits: Option<(
+        &proc_macro2::TokenStream,
+        &proc_macro2::TokenStream,
+    )>,
 ) -> proc_macro2::TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -1506,6 +1588,7 @@ fn impl_bitfield_ty<'a>(
                 storage_deref,
                 storage_deref_ty,
                 full_bits,
+                #[cfg(feature = "gce")]
                 start_end_bits,
             );
 
@@ -1516,8 +1599,9 @@ fn impl_bitfield_ty<'a>(
                     storage_deref,
                     storage_deref_ty,
                     full_bits,
-                    start_end_bits,
                     allows_with,
+                    #[cfg(feature = "gce")]
+                    start_end_bits,
                 )
             });
 
@@ -1544,7 +1628,7 @@ fn impl_bitfield_ty<'a>(
         impl #impl_generics #ident #ty_generics #where_clause {
             #[doc(hidden)]
             #[inline(always)]
-            #storage_vis fn __from_storage(storage: #storage_ty) -> Self {
+            #storage_vis const fn __from_storage(storage: #storage_ty) -> Self {
                 Self(storage #type_params_phantom_data)
             }
 
@@ -1583,10 +1667,11 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         &storage_ty,
         &storage_ty_bits,
         storage_ty_bits_are_const,
-        None,
         &fields,
         true,
         true,
+        #[cfg(feature = "gce")]
+        None,
     );
 
     #[cfg(feature = "gce")]
@@ -1630,10 +1715,10 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             &nested_storage_deref_ty,
             &storage_ty_bits,
             storage_ty_bits_are_const,
-            Some((&nested_start_bit, &nested_end_bit)),
             &fields,
             false,
             false,
+            Some((&nested_start_bit, &nested_end_bit)),
         );
 
         let nested_mut_impl_generics_ = add_nested_impl_generics(generics.clone(), &fields, true);
@@ -1662,10 +1747,10 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             &nested_storage_deref_ty,
             &storage_ty_bits,
             storage_ty_bits_are_const,
-            Some((&nested_start_bit, &nested_end_bit)),
             &fields,
             true,
             false,
+            Some((&nested_start_bit, &nested_end_bit)),
         );
 
         quote! {
@@ -1678,7 +1763,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     #nested_ty_ident #nested_ty_generics where _Storage: '_storage;
             }
 
-            impl #nested_impl_generics ::proc_bitfield::__private::NestedBitfield<
+            impl #nested_impl_generics const ::proc_bitfield::__private::NestedBitfield<
                 '_storage, _Storage
             >
                 for #nested_ty_ident #nested_ty_generics #nested_where_clause
@@ -1698,7 +1783,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                     #nested_mut_ty_ident #nested_mut_ty_generics where _Storage: '_storage;
             }
 
-            impl #nested_mut_impl_generics ::proc_bitfield::__private::NestedMutBitfield<
+            impl #nested_mut_impl_generics const ::proc_bitfield::__private::NestedMutBitfield<
                 '_storage, _Storage
             >
                 for #nested_mut_ty_ident #nested_mut_ty_generics #nested_mut_where_clause
