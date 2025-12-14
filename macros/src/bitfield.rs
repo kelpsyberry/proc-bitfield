@@ -9,8 +9,6 @@ use crate::{
 };
 use proc_macro::TokenStream;
 use proc_macro2::Span;
-#[cfg(feature = "gce")]
-use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 #[cfg(feature = "gce")]
 use std::borrow::Cow;

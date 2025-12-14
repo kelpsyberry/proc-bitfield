@@ -34,7 +34,7 @@ where
 
 impl<T, U> const UnsafeInto<U> for T
 where
-    U: ~const UnsafeFrom<T>,
+    U: [const] UnsafeFrom<T>,
 {
     /// Calls `U::unsafe_from(self)`.
     ///
