@@ -2,9 +2,13 @@
 
 A Rust crate to expressively declare bitfield-like `struct`s, automatically ensuring their correctness at compile time and declaring accessors.
 
-## `nightly` feature
+## `nightly` and `gce` features
 
-Optionally, the `nightly` feature can be enabled to use experimental features exclusive to nightly Rust. This currently enables the `UnwrapBits` derive.
+Optionally, the `nightly` feature can be enabled to use experimental features exclusive to nightly Rust. This currently enables the `UnwrapBits` derive and `const` fn and trait support.
+
+The `gce` feature, which automatically includes `nightly`, enables the experimental usage of `generic_const_exprs` (a currently incomplete Rust feature) in order to provide more efficient nested bitfield operations; this is implemented through progressive narrowing of the part of the topmost bitfield's storage to access. For example, `a.b_write().c_write().set_d(false)` will directly set `a.b.c.d` to `false` in `a`'s storage with no other unnecessary operations.
+
+> <p class="warning"><b>WARNING</b>: As of now, enabling the `gce` feature will almost always cause compiler crashes.</p>
 
 # The `bitfield!` macro
 
@@ -17,7 +21,11 @@ bitfield! {
     pub struct Example(pub u8): Debug, FromStorage, IntoStorage, DerefStorage { /* ... */ }
 }
 ```
-Currently, the allowed automatic implementations are `Debug`, `FromStorage`, `IntoStorage` and `DerefStorage`.
+Currently, the allowed automatic implementations are `Debug`, `FromStorage`, `IntoStorage` and `DerefStorage`; a `const` option is also available when the `nightly` feature is enabled.
+
+### `const` (`nightly` feature only)
+
+If specified, all of the bitfield struct's field accessors will be `const fn`s by default; the behavior can also be enabled or disabled for individual fields with `const` and `no_const` options, also only available with the `nightly` feature enabled.
 
 ### `Debug`
 
