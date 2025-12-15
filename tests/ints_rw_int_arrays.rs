@@ -24,35 +24,35 @@ fn ints_rw_int_arrays_basic_functionality() {
 #[test]
 fn ints_read_int_arrays_signs() {
     assert_eq!(bits!(0xA9A7_6543_u32, [u8; 2] @ 8; 15), [0x65, 0x27]);
-    assert_eq!(bits!(0xA9A7_6543_i32, [u8; 2] @ 8; 15), [0x65, 0x27]);
+    assert_eq!(bits!(0xA9A7_6543_u32 as i32, [u8; 2] @ 8; 15), [0x65, 0x27]);
     assert_eq!(
         bits!(0xA9A7_6543_u32, [i8; 2] @ 8; 15),
         [0x65, 0x27_u8 as i8]
     );
     assert_eq!(
-        bits!(0xA9A7_6543_i32, [i8; 2] @ 8; 15),
+        bits!(0xA9A7_6543_u32 as i32, [i8; 2] @ 8; 15),
         [0x65, 0x27_u8 as i8]
     );
 
     assert_eq!(bits!(0xA9A7_6543_u32, [u8; 2] @ 8; 14), [0x65, 0x27]);
-    assert_eq!(bits!(0xA9A7_6543_i32, [u8; 2] @ 8; 14), [0x65, 0x27]);
+    assert_eq!(bits!(0xA9A7_6543_u32 as i32, [u8; 2] @ 8; 14), [0x65, 0x27]);
     assert_eq!(
         bits!(0xA9A7_6543_u32, [i8; 2] @ 8; 14),
         [0x65, 0xE7_u8 as i8]
     );
     assert_eq!(
-        bits!(0xA9A7_6543_i32, [i8; 2] @ 8; 14),
+        bits!(0xA9A7_6543_u32 as i32, [i8; 2] @ 8; 14),
         [0x65, 0xE7_u8 as i8]
     );
 
     assert_eq!(bits!(0xA9A7_6543_u32, [u8; 2] @ 9; 15), [0xB2, 0x53]);
-    assert_eq!(bits!(0xA9A7_6543_i32, [u8; 2] @ 9; 15), [0xB2, 0x53]);
+    assert_eq!(bits!(0xA9A7_6543_u32 as i32, [u8; 2] @ 9; 15), [0xB2, 0x53]);
     assert_eq!(
         bits!(0xA9A7_6543_u32, [i8; 2] @ 9; 15),
         [0xB2_u8 as i8, 0xD3_u8 as i8]
     );
     assert_eq!(
-        bits!(0xA9A7_6543_i32, [i8; 2] @ 9; 15),
+        bits!(0xA9A7_6543_u32 as i32, [i8; 2] @ 9; 15),
         [0xB2_u8 as i8, 0xD3_u8 as i8]
     );
 
