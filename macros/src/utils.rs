@@ -2,6 +2,8 @@ use std::cell::Cell;
 
 #[cfg(feature = "gce")]
 use proc_macro2::Span;
+#[cfg(feature = "gce")]
+use quote::quote_spanned;
 use quote::{format_ident, quote};
 use syn::{
     braced, bracketed, parenthesized,
@@ -12,7 +14,7 @@ use syn::{
 #[cfg(feature = "gce")]
 use syn::{
     AttrStyle, Attribute, ConstParam, Expr, MacroDelimiter, MetaList, Type, TypeParam,
-    TypeParamBound, WherePredicate,
+    TypeParamBound, WhereClause, WherePredicate,
 };
 
 pub fn for_all_int_types(mut f: impl FnMut(u8, bool, Ident)) {
@@ -149,5 +151,21 @@ pub fn min(a: &proc_macro2::TokenStream, b: &proc_macro2::TokenStream) -> proc_m
 
 #[cfg(feature = "gce")]
 pub fn sized_pred(value: &proc_macro2::TokenStream) -> WherePredicate {
-    syn::parse(quote! { [(); {#value}]: Sized }.into()).unwrap()
+    syn::parse2(quote! { [(); {#value}]: Sized }).unwrap()
+}
+
+#[cfg(feature = "gce")]
+pub fn add_const_bounds(
+    span: Span,
+    where_clause: &mut WhereClause,
+    ty: &Type,
+    traits: &[proc_macro2::TokenStream],
+) {
+    where_clause.predicates.push(
+        syn::parse2(quote_spanned! {
+            span =>
+            #(#ty: [const] #traits),*
+        })
+        .unwrap(),
+    );
 }

@@ -1,5 +1,5 @@
 #[cfg(feature = "gce")]
-use crate::utils::{const_param, doc_hidden, min, sized_pred, type_param};
+use crate::utils::{add_const_bounds, const_param, doc_hidden, min, sized_pred, type_param};
 use crate::{
     bits::{Bits, BitsSpan},
     utils::{
@@ -260,6 +260,7 @@ impl Field {
             &proc_macro2::TokenStream,
             &proc_macro2::TokenStream,
         )>,
+        #[cfg(feature = "gce")] storage_needs_const_bounds: bool,
     ) -> Option<proc_macro2::TokenStream> {
         let Field {
             attrs,
@@ -299,10 +300,10 @@ impl Field {
                         ty,
                         has_safe_accessor,
                     } => {
-                        let unsafe_ = has_safe_accessor.then(|| quote! { unsafe }).into_iter();
+                        let unsafe_ = has_safe_accessor.then(|| quote! { unsafe });
                         (
                             quote! {
-                                #(#unsafe_)* {
+                                #unsafe_ {
                                     <
                                         #ty as ::proc_bitfield::UnsafeFrom<#field_ty>
                                     >::unsafe_from(raw_value)
@@ -341,9 +342,9 @@ impl Field {
                         ty,
                         has_safe_accessor,
                     } => {
-                        let unsafe_ = has_safe_accessor.then(|| quote! { unsafe }).into_iter();
+                        let unsafe_ = has_safe_accessor.then(|| quote! { unsafe });
                         (
-                            quote! { #(#unsafe_)* { #fn_(raw_value) } },
+                            quote! { #unsafe_ { #fn_(raw_value) } },
                             ty.to_token_stream(),
                         )
                     }
@@ -360,13 +361,13 @@ impl Field {
                 #[allow(unused_labels)]
                 let get_raw_value = 'get_raw_value: {
                     #[cfg(feature = "gce")]
-                    if let Some((_start_bit, _end_bit)) = start_end_bits {
+                    if let Some((start_bit, end_bit)) = start_end_bits {
                         break 'get_raw_value match bits_span {
                             BitsSpan::Single(bit) => {
-                                let bit = quote! { (#_start_bit) + (#bit) };
+                                let bit = quote! { (#start_bit) + (#bit) };
                                 quote_spanned! {
                                     ident.span() =>
-                                    if (#bit) < (#_end_bit) {
+                                    if (#bit) < (#end_bit) {
                                         <#storage_ty as ::proc_bitfield::Bit>::bit::<{#bit}>(&#storage)
                                     } else {
                                         false
@@ -374,8 +375,8 @@ impl Field {
                                 }
                             }
                             BitsSpan::Range { start, end } => {
-                                let start = quote! { (#_start_bit) + (#start) };
-                                let end = min(&quote! { (#_start_bit) + (#end) }, _end_bit);
+                                let start = quote! { (#start_bit) + (#start) };
+                                let end = min(&quote! { (#start_bit) + (#end) }, end_bit);
                                 quote_spanned! {
                                     ident.span() =>
                                     <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
@@ -383,11 +384,11 @@ impl Field {
                                 }
                             }
                             BitsSpan::Full => {
-                                let end = min(&quote! { (#_start_bit) + (#full_bits) }, _end_bit);
+                                let end = min(&quote! { (#start_bit) + (#full_bits) }, end_bit);
                                 quote_spanned! {
                                     ident.span() =>
                                     <#storage_ty as ::proc_bitfield::Bits<#field_ty>>
-                                        ::bits::<{#_start_bit}, {#end}>(&#storage)
+                                        ::bits::<{#start_bit}, {#end}>(&#storage)
                                 }
                             }
                         };
@@ -417,18 +418,29 @@ impl Field {
                     }
                 };
 
-                let unsafe_ = get_kind.is_unsafe().then(|| quote! { unsafe }).into_iter();
-                let const_ = self
-                    .has_const_getter()
-                    .then(|| quote! { const })
-                    .into_iter();
+                #[cfg(feature = "gce")]
+                if self.has_const_getter() && storage_needs_const_bounds {
+                    add_const_bounds(
+                        ident.span(),
+                        &mut where_clause,
+                        storage_ty,
+                        &[if matches!(bits_span, BitsSpan::Single(_)) {
+                            quote! { ::proc_bitfield::Bit }
+                        } else {
+                            quote! { ::proc_bitfield::Bits<#field_ty> }
+                        }],
+                    );
+                }
+
+                let unsafe_ = get_kind.is_unsafe().then(|| quote! { unsafe });
+                let const_ = self.has_const_getter().then(|| quote! { const });
                 let asserts = asserts.get();
                 Some(quote! {
                     #(#attrs)*
                     #[inline]
                     #[allow(clippy::identity_op)]
                     #[allow(unused_braces)]
-                    #vis #(#const_)* #(#unsafe_)* fn #ident(&self) -> #output_ty #where_clause {
+                    #vis #const_ #unsafe_ fn #ident(&self) -> #output_ty #where_clause {
                         #asserts
                         let raw_value = #get_raw_value;
                         #output
@@ -454,10 +466,11 @@ impl Field {
                 #[cfg(feature = "gce")]
                 let ref_getter = {
                     let mut where_clause = where_clause.clone();
+                    let where_const = self.has_const_getter().then(|| quote! { [const] });
                     where_clause.predicates.push(
                         syn::parse(
                             quote! {
-                                #field_ty: ::proc_bitfield::NestableBitfield<
+                                #field_ty: #where_const ::proc_bitfield::NestableBitfield<
                                     #storage_ty, {#start}, {#end}
                                 >
                             }
@@ -467,17 +480,14 @@ impl Field {
                     );
 
                     let ref_fn_ident = format_ident!("{}_ref", ident);
-                    let const_ = self
-                        .has_const_getter()
-                        .then(|| quote! { const })
-                        .into_iter();
+                    let const_ = self.has_const_getter().then(|| quote! { const });
                     let asserts = asserts.get();
                     quote! {
                         #(#attrs)*
                         #[inline]
                         #[allow(clippy::identity_op)]
                         #[allow(unused_braces)]
-                        #vis #(#const_)* fn #ref_fn_ident(&'_ self)
+                        #vis #const_ fn #ref_fn_ident(&'_ self)
                             -> <#field_ty as ::proc_bitfield::NestableBitfield<
                                 #storage_ty, {#start}, {#end}
                             >>::Nested<'_> #where_clause {
@@ -489,10 +499,21 @@ impl Field {
                 #[cfg(not(feature = "gce"))]
                 let ref_getter = quote! {};
 
-                let const_ = self
-                    .has_const_getter()
-                    .then(|| quote! { const })
-                    .into_iter();
+                #[cfg(feature = "gce")]
+                if self.has_const_getter() && storage_needs_const_bounds {
+                    add_const_bounds(
+                        ident.span(),
+                        &mut where_clause,
+                        storage_ty,
+                        &[quote! {
+                            ::proc_bitfield::Bits<
+                                <#field_ty as ::proc_bitfield::Bitfield>::Storage
+                            >
+                        }],
+                    );
+                }
+
+                let const_ = self.has_const_getter().then(|| quote! { const });
                 let asserts = asserts.get();
                 Some(quote! {
                     #ref_getter
@@ -501,7 +522,7 @@ impl Field {
                     #[inline]
                     #[allow(clippy::identity_op)]
                     #[allow(unused_braces)]
-                    #vis #(#const_)* fn #ident(&self) -> #field_ty #where_clause {
+                    #vis #const_ fn #ident(&self) -> #field_ty #where_clause {
                         #asserts
                         let raw_value = <#storage_ty as ::proc_bitfield::Bits<
                                 <#field_ty as ::proc_bitfield::Bitfield>::Storage
@@ -527,6 +548,7 @@ impl Field {
             &proc_macro2::TokenStream,
             &proc_macro2::TokenStream,
         )>,
+        #[cfg(feature = "gce")] storage_needs_const_bounds: bool,
     ) -> Option<proc_macro2::TokenStream> {
         let Field {
             attrs,
@@ -579,11 +601,11 @@ impl Field {
                             ty,
                             has_safe_accessor,
                         } => {
-                            let unsafe_ = has_safe_accessor.then(|| quote! { unsafe }).into_iter();
+                            let unsafe_ = has_safe_accessor.then(|| quote! { unsafe });
                             (
                                 ty,
                                 quote! {
-                                    #(#unsafe_)* {
+                                    #unsafe_ {
                                         <
                                             #ty as ::proc_bitfield::UnsafeInto<#field_ty>
                                         >::unsafe_into(value)
@@ -640,10 +662,10 @@ impl Field {
                             ty,
                             has_safe_accessor,
                         } => {
-                            let unsafe_ = has_safe_accessor.then(|| quote! { unsafe }).into_iter();
+                            let unsafe_ = has_safe_accessor.then(|| quote! { unsafe });
                             (
                                 ty,
-                                quote! { #(#unsafe_)* { #fn_(value) } },
+                                quote! { #unsafe_ { #fn_(value) } },
                                 quote! {},
                                 quote! { () },
                                 quote! { result },
@@ -785,11 +807,22 @@ impl Field {
                 };
 
                 let modifier = outer_allows_with.then(|| {
+                    #[cfg(feature = "gce")]
+                    if self.has_const_setter() && storage_needs_const_bounds {
+                        add_const_bounds(
+                            ident.span(),
+                            &mut where_clause,
+                            storage_ty,
+                            &[if matches!(bits_span, BitsSpan::Single(_)) {
+                                quote! { ::proc_bitfield::WithBit }
+                            } else {
+                                quote! { ::proc_bitfield::WithBits<#field_ty> }
+                            }],
+                        );
+                    }
+
                     let unsafe_ = set_kind.is_unsafe().then(|| quote! { unsafe });
-                    let const_ = self
-                        .has_const_setter()
-                        .then(|| quote! { const })
-                        .into_iter();
+                    let const_ = self.has_const_setter().then(|| quote! { const });
                     let asserts = asserts.get();
                     quote! {
                         #(#attrs)*
@@ -797,7 +830,7 @@ impl Field {
                         #[must_use]
                         #[allow(clippy::identity_op)]
                         #[allow(unused_braces)]
-                        #vis #(#const_)* #unsafe_ fn #with_fn_ident(self, value: #input_ty)
+                        #vis #const_ #unsafe_ fn #with_fn_ident(self, value: #input_ty)
                             -> #with_output_ty #where_clause
                         {
                             #asserts
@@ -807,11 +840,22 @@ impl Field {
                     }
                 });
 
+                #[cfg(feature = "gce")]
+                if self.has_const_setter() && storage_needs_const_bounds {
+                    add_const_bounds(
+                        ident.span(),
+                        &mut where_clause,
+                        storage_ty,
+                        &[if matches!(bits_span, BitsSpan::Single(_)) {
+                            quote! { ::proc_bitfield::SetBit }
+                        } else {
+                            quote! { ::proc_bitfield::SetBits<#field_ty> }
+                        }],
+                    );
+                }
+
                 let unsafe_ = set_kind.is_unsafe().then(|| quote! { unsafe });
-                let const_ = self
-                    .has_const_setter()
-                    .then(|| quote! { const })
-                    .into_iter();
+                let const_ = self.has_const_setter().then(|| quote! { const });
                 let asserts = asserts.get();
                 Some(quote! {
                     #modifier
@@ -820,7 +864,7 @@ impl Field {
                     #[inline]
                     #[allow(clippy::identity_op)]
                     #[allow(unused_braces)]
-                    #vis #(#const_)* #unsafe_ fn #set_fn_ident(&mut self, value: #input_ty)
+                    #vis #const_ #unsafe_ fn #set_fn_ident(&mut self, value: #input_ty)
                         -> #set_output_ty #where_clause
                     {
                         #asserts
@@ -846,10 +890,11 @@ impl Field {
                 #[cfg(feature = "gce")]
                 let mut_getter = (_outer_is_readable && *_is_readable).then(|| {
                     let mut where_clause = where_clause.clone();
+                    let where_const = self.has_const_setter().then(|| quote! { [const] });
                     where_clause.predicates.push(
                         syn::parse(
                             quote! {
-                                #field_ty: ::proc_bitfield::NestableMutBitfield<
+                                #field_ty: #where_const ::proc_bitfield::NestableMutBitfield<
                                     #storage_ty, {#start}, {#end}
                                 >
                             }
@@ -859,17 +904,14 @@ impl Field {
                     );
 
                     let mut_fn_ident = format_ident!("{}_mut", ident);
-                    let const_ = self
-                        .has_const_setter()
-                        .then(|| quote! { const })
-                        .into_iter();
+                    let const_ = self.has_const_setter().then(|| quote! { const });
                     let asserts = asserts.get();
                     quote! {
                         #(#attrs)*
                         #[inline]
                         #[allow(clippy::identity_op)]
                         #[allow(unused_braces)]
-                        #vis #(#const_)* fn #mut_fn_ident(&'_ mut self)
+                        #vis #const_ fn #mut_fn_ident(&'_ mut self)
                             -> <#field_ty as ::proc_bitfield::NestableMutBitfield<
                                 #storage_ty, {#start}, {#end}
                             >>::NestedMut<'_> #where_clause
@@ -887,10 +929,11 @@ impl Field {
                 #[cfg(feature = "gce")]
                 let writer = {
                     let mut where_clause = where_clause.clone();
+                    let where_const = self.has_const_setter().then(|| quote! { [const] });
                     where_clause.predicates.push(
                         syn::parse(
                             quote! {
-                                #field_ty: ::proc_bitfield::NestableWriteBitfield<
+                                #field_ty: #where_const ::proc_bitfield::NestableWriteBitfield<
                                     #storage_ty, {#start}, {#end}
                                 >
                             }
@@ -900,17 +943,14 @@ impl Field {
                     );
 
                     let write_fn_ident = format_ident!("{}_write", ident);
-                    let const_ = self
-                        .has_const_setter()
-                        .then(|| quote! { const })
-                        .into_iter();
+                    let const_ = self.has_const_setter().then(|| quote! { const });
                     let asserts = asserts.get();
                     quote! {
                         #(#attrs)*
                         #[inline]
                         #[allow(clippy::identity_op)]
                         #[allow(unused_braces)]
-                        #vis #(#const_)* fn #write_fn_ident(&'_ mut self)
+                        #vis #const_ fn #write_fn_ident(&'_ mut self)
                             -> <#field_ty as ::proc_bitfield::NestableWriteBitfield<
                                 #storage_ty, {#start}, {#end}
                             >>::NestedWrite<'_> #where_clause
@@ -926,10 +966,21 @@ impl Field {
                 let writer = quote! {};
 
                 let modifier = outer_allows_with.then(|| {
-                    let const_ = self
-                        .has_const_setter()
-                        .then(|| quote! { const })
-                        .into_iter();
+                    #[cfg(feature = "gce")]
+                    if self.has_const_setter() && storage_needs_const_bounds {
+                        add_const_bounds(
+                            ident.span(),
+                            &mut where_clause,
+                            storage_ty,
+                            &[quote! {
+                                ::proc_bitfield::WithBits<
+                                    <#field_ty as ::proc_bitfield::Bitfield>::Storage
+                                >
+                            }],
+                        );
+                    }
+
+                    let const_ = self.has_const_setter().then(|| quote! { const });
                     let asserts = asserts.get();
                     quote! {
                         #(#attrs)*
@@ -937,23 +988,34 @@ impl Field {
                         #[must_use]
                         #[allow(clippy::identity_op)]
                         #[allow(unused_braces)]
-                        #vis #(#const_)* fn #with_fn_ident(self, value: #field_ty)
+                        #vis #const_ fn #with_fn_ident(self, value: #field_ty)
                             -> Self #where_clause
                         {
                             #asserts
                             Self::__from_storage(
                                 <#storage_ty as ::proc_bitfield::WithBits<
-                                    <#field_ty as ::proc_bitfield::Bitfield>::Storage>
-                                >::with_bits::<{#start}, {#end}>(#storage, value.0),
+                                    <#field_ty as ::proc_bitfield::Bitfield>::Storage
+                                >>::with_bits::<{#start}, {#end}>(#storage, value.0),
                             )
                         }
                     }
                 });
 
-                let const_ = self
-                    .has_const_setter()
-                    .then(|| quote! { const })
-                    .into_iter();
+                #[cfg(feature = "gce")]
+                if self.has_const_setter() && storage_needs_const_bounds {
+                    add_const_bounds(
+                        ident.span(),
+                        &mut where_clause,
+                        storage_ty,
+                        &[quote! {
+                            ::proc_bitfield::SetBits<
+                                <#field_ty as ::proc_bitfield::Bitfield>::Storage
+                            >
+                        }],
+                    );
+                }
+
+                let const_ = self.has_const_setter().then(|| quote! { const });
                 let asserts = asserts.get();
                 Some(quote! {
                     #mut_getter
@@ -965,7 +1027,7 @@ impl Field {
                     #[inline]
                     #[allow(clippy::identity_op)]
                     #[allow(unused_braces)]
-                    #vis #(#const_)* fn #set_fn_ident(&mut self, value: #field_ty) #where_clause {
+                    #vis #const_ fn #set_fn_ident(&mut self, value: #field_ty) #where_clause {
                         #asserts
                         <#storage_ty as ::proc_bitfield::SetBits<
                             <#field_ty as ::proc_bitfield::Bitfield>::Storage>
@@ -1600,6 +1662,7 @@ fn impl_bitfield_ty<'a>(
         &proc_macro2::TokenStream,
         &proc_macro2::TokenStream,
     )>,
+    #[cfg(feature = "gce")] storage_needs_const_bounds: bool,
 ) -> proc_macro2::TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -1632,6 +1695,8 @@ fn impl_bitfield_ty<'a>(
                     full_bits,
                     #[cfg(feature = "gce")]
                     start_end_bits,
+                    #[cfg(feature = "gce")]
+                    storage_needs_const_bounds,
                 )
             });
 
@@ -1646,6 +1711,8 @@ fn impl_bitfield_ty<'a>(
                     allows_with,
                     #[cfg(feature = "gce")]
                     start_end_bits,
+                    #[cfg(feature = "gce")]
+                    storage_needs_const_bounds,
                 )
             });
 
@@ -1670,9 +1737,8 @@ fn impl_bitfield_ty<'a>(
         ) #where_clause;
 
         impl #impl_generics #ident #ty_generics #where_clause {
-            #[doc(hidden)]
             #[inline(always)]
-            #storage_vis const fn __from_storage(storage: #storage_ty) -> Self {
+            const fn __from_storage(storage: #storage_ty) -> Self {
                 Self(storage #type_params_phantom_data)
             }
 
@@ -1717,6 +1783,8 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         true,
         #[cfg(feature = "gce")]
         None,
+        #[cfg(feature = "gce")]
+        false,
     );
 
     #[cfg(feature = "gce")]
@@ -1766,6 +1834,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             false,
             false,
             Some((&nested_start_bit, &nested_end_bit)),
+            true,
         );
 
         let nested_mut_impl_generics_ =
@@ -1800,6 +1869,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             true,
             false,
             Some((&nested_start_bit, &nested_end_bit)),
+            true,
         );
 
         let nested_write_impl_generics_ =
@@ -1834,6 +1904,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             true,
             false,
             Some((&nested_start_bit, &nested_end_bit)),
+            true,
         );
 
         quote! {
