@@ -1,3 +1,8 @@
+## 0.5.3
+- Re-added `const fn` functionality with the `nightly` feature
+- Added **experimental** faster nested bitfields with the `gce` feature (uses very unstable compiler features)
+- Fixed `ConvRaw` `bool` conversions emitting invalid code in certain cases
+
 ## 0.5.2
 - Added the ability to specify field ranges using arbitrary expressions in addition to literals, by enclosing the expressions in parens (`(<expr>)`)
 - Reverted the fix from v0.5.1 due to it hindering other optimizations and the original issue only triggering in extremely specific cases
