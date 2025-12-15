@@ -10,6 +10,24 @@
     expect(incomplete_features)
 )]
 
+#[cfg(not(feature = "nightly"))]
+macro_rules! const_trait {
+    ($trait: item) => {
+        $trait
+    };
+}
+
+#[cfg(feature = "nightly")]
+macro_rules! const_trait {
+    (
+        $(#[$attr:meta])*
+        $vis:vis trait $($tokens:tt)*
+    ) => {
+        $(#[$attr])*
+        $vis const trait $($tokens)*
+    };
+}
+
 #[doc(hidden)]
 pub mod __private {
     pub use static_assertions;
@@ -33,7 +51,25 @@ pub mod __private {
     }
 
     #[cfg(feature = "gce")]
-    pub use crate::nested_traits::*;
+    const_trait! {
+        pub trait NestedBitfield<'a, S> {
+            fn __from_storage(storage: &'a S) -> Self;
+        }
+    }
+
+    #[cfg(feature = "gce")]
+    const_trait! {
+        pub trait NestedMutBitfield<'a, S> {
+            fn __from_storage(storage: &'a mut S) -> Self;
+        }
+    }
+
+    #[cfg(feature = "gce")]
+    const_trait! {
+        pub trait NestedWriteBitfield<'a, S> {
+            fn __from_storage(storage: &'a mut S) -> Self;
+        }
+    }
 }
 
 /// The main focus of the crate. Defines a bitfield struct.
@@ -64,30 +100,10 @@ pub use macros::ConvRaw;
 #[doc = include_str!("../usage_examples/unwrap_bits.md")]
 pub use macros::UnwrapBits;
 
-#[cfg(not(feature = "nightly"))]
-macro_rules! const_trait {
-    ($trait: item) => {
-        $trait
-    };
-}
-
-#[cfg(feature = "nightly")]
-macro_rules! const_trait {
-    (
-        $(#[$attr:meta])*
-        $vis:vis trait $($tokens:tt)*
-    ) => {
-        $(#[$attr])*
-        $vis const trait $($tokens)*
-    };
-}
-
 mod conv;
 pub use conv::*;
 mod traits;
 pub use traits::*;
-#[cfg(feature = "gce")]
-mod nested_traits;
 
 #[cfg(any(test, doc))]
 extern crate self as proc_bitfield;

@@ -521,7 +521,8 @@ impl Field {
         storage: &proc_macro2::TokenStream,
         storage_ty: &Type,
         full_bits: &proc_macro2::TokenStream,
-        allows_with: bool,
+        _outer_is_readable: bool,
+        outer_allows_with: bool,
         #[cfg(feature = "gce")] start_end_bits: Option<(
             &proc_macro2::TokenStream,
             &proc_macro2::TokenStream,
@@ -783,7 +784,7 @@ impl Field {
                     }
                 };
 
-                let modifier = allows_with.then(|| {
+                let modifier = outer_allows_with.then(|| {
                     let unsafe_ = set_kind.is_unsafe().then(|| quote! { unsafe });
                     let const_ = self
                         .has_const_setter()
@@ -843,7 +844,7 @@ impl Field {
                 let with_fn_ident = format_ident!("with_{}", ident);
 
                 #[cfg(feature = "gce")]
-                let mut_getter = _is_readable.then(|| {
+                let mut_getter = (_outer_is_readable && *_is_readable).then(|| {
                     let mut where_clause = where_clause.clone();
                     where_clause.predicates.push(
                         syn::parse(
@@ -883,7 +884,48 @@ impl Field {
                 #[cfg(not(feature = "gce"))]
                 let mut_getter = quote! {};
 
-                let modifier = allows_with.then(|| {
+                #[cfg(feature = "gce")]
+                let writer = {
+                    let mut where_clause = where_clause.clone();
+                    where_clause.predicates.push(
+                        syn::parse(
+                            quote! {
+                                #field_ty: ::proc_bitfield::NestableWriteBitfield<
+                                    #storage_ty, {#start}, {#end}
+                                >
+                            }
+                            .into(),
+                        )
+                        .unwrap(),
+                    );
+
+                    let write_fn_ident = format_ident!("{}_write", ident);
+                    let const_ = self
+                        .has_const_setter()
+                        .then(|| quote! { const })
+                        .into_iter();
+                    let asserts = asserts.get();
+                    quote! {
+                        #(#attrs)*
+                        #[inline]
+                        #[allow(clippy::identity_op)]
+                        #[allow(unused_braces)]
+                        #vis #(#const_)* fn #write_fn_ident(&'_ mut self)
+                            -> <#field_ty as ::proc_bitfield::NestableWriteBitfield<
+                                #storage_ty, {#start}, {#end}
+                            >>::NestedWrite<'_> #where_clause
+                        {
+                            #asserts
+                            ::proc_bitfield::__private::NestedWriteBitfield::__from_storage(
+                                &mut #storage,
+                            )
+                        }
+                    }
+                };
+                #[cfg(not(feature = "gce"))]
+                let writer = quote! {};
+
+                let modifier = outer_allows_with.then(|| {
                     let const_ = self
                         .has_const_setter()
                         .then(|| quote! { const })
@@ -915,6 +957,7 @@ impl Field {
                 let asserts = asserts.get();
                 Some(quote! {
                     #mut_getter
+                    #writer
 
                     #modifier
 
@@ -1396,6 +1439,7 @@ fn add_nested_generics(mut impl_generics: Generics) -> Generics {
 fn add_nested_impl_generics(
     mut generics: Generics,
     fields: &Punctuated<Field, Token![,]>,
+    outer_is_readable: bool,
     outer_is_writable: bool,
 ) -> Generics {
     let mut bounds = vec![TraitBound {
@@ -1425,7 +1469,7 @@ fn add_nested_impl_generics(
         match content {
             FieldContent::Single(SingleField { get_kind, set_kind }) => {
                 if matches!(bits, Bits::Single(_) | Bits::SinglePack { .. }) {
-                    if !matches!(get_kind, AccessorKind::Disabled) {
+                    if !matches!(get_kind, AccessorKind::Disabled) && outer_is_readable {
                         bounds.push(
                             syn::parse::<TraitBound>(quote! { ::proc_bitfield::Bit }.into())
                                 .unwrap()
@@ -1446,7 +1490,7 @@ fn add_nested_impl_generics(
                         );
                     }
                 } else {
-                    if !matches!(get_kind, AccessorKind::Disabled) {
+                    if !matches!(get_kind, AccessorKind::Disabled) && outer_is_readable {
                         bounds.push(
                             syn::parse::<TraitBound>(quote! { ::proc_bitfield::Bits<#ty> }.into())
                                 .unwrap()
@@ -1477,7 +1521,7 @@ fn add_nested_impl_generics(
                 is_writable,
             }) => {
                 let field_storage_ty = quote! { <#ty as ::proc_bitfield::Bitfield>::Storage };
-                if *is_readable {
+                if *is_readable && outer_is_readable {
                     bounds.push(
                         syn::parse::<TraitBound>(
                             quote! { ::proc_bitfield::Bits<#field_storage_ty> }.into(),
@@ -1488,20 +1532,18 @@ fn add_nested_impl_generics(
                 }
 
                 if *is_writable && outer_is_writable {
-                    bounds.push(
+                    bounds.extend_from_slice(&[
                         syn::parse::<TraitBound>(
                             quote! { ::proc_bitfield::WithBits<#field_storage_ty> }.into(),
                         )
                         .unwrap()
                         .into(),
-                    );
-                    bounds.push(
                         syn::parse::<TraitBound>(
                             quote! { ::proc_bitfield::SetBits<#field_storage_ty> }.into(),
                         )
                         .unwrap()
                         .into(),
-                    );
+                    ]);
                 }
             }
         }
@@ -1551,6 +1593,7 @@ fn impl_bitfield_ty<'a>(
     full_bits: &proc_macro2::TokenStream,
     full_bits_are_const: bool,
     fields: &Punctuated<Field, Token![,]>,
+    is_readable: bool,
     is_writable: bool,
     allows_with: bool,
     #[cfg(feature = "gce")] start_end_bits: Option<(
@@ -1580,23 +1623,26 @@ fn impl_bitfield_ty<'a>(
 
             let asserts = field.asserts(&bits_span, full_bits, full_bits_are_const);
 
-            let getters = field.getters(
-                &bits_span,
-                &asserts,
-                storage_deref,
-                storage_deref_ty,
-                full_bits,
-                #[cfg(feature = "gce")]
-                start_end_bits,
-            );
+            let getters = is_readable.then(|| {
+                field.getters(
+                    &bits_span,
+                    &asserts,
+                    storage_deref,
+                    storage_deref_ty,
+                    full_bits,
+                    #[cfg(feature = "gce")]
+                    start_end_bits,
+                )
+            });
 
-            let setters = is_writable.then_some(()).and_then(|_| {
+            let setters = is_writable.then(|| {
                 field.setters(
                     &bits_span,
                     &asserts,
                     storage_deref,
                     storage_deref_ty,
                     full_bits,
+                    is_readable,
                     allows_with,
                     #[cfg(feature = "gce")]
                     start_end_bits,
@@ -1668,6 +1714,7 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         &fields,
         true,
         true,
+        true,
         #[cfg(feature = "gce")]
         None,
     );
@@ -1687,7 +1734,8 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
         let nested_start_bit = quote! { START };
         let nested_end_bit = quote! { END };
 
-        let nested_impl_generics_ = add_nested_impl_generics(generics.clone(), &fields, false);
+        let nested_impl_generics_ =
+            add_nested_impl_generics(generics.clone(), &fields, true, false);
         let (nested_impl_impl_generics, _, nested_impl_where_clause) =
             nested_impl_generics_.split_for_impl();
 
@@ -1714,12 +1762,14 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             &storage_ty_bits,
             storage_ty_bits_are_const,
             &fields,
+            true,
             false,
             false,
             Some((&nested_start_bit, &nested_end_bit)),
         );
 
-        let nested_mut_impl_generics_ = add_nested_impl_generics(generics.clone(), &fields, true);
+        let nested_mut_impl_generics_ =
+            add_nested_impl_generics(generics.clone(), &fields, true, true);
         let (nested_mut_impl_impl_generics, _, nested_mut_impl_where_clause) =
             nested_mut_impl_generics_.split_for_impl();
 
@@ -1746,6 +1796,41 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
             &storage_ty_bits,
             storage_ty_bits_are_const,
             &fields,
+            true,
+            true,
+            false,
+            Some((&nested_start_bit, &nested_end_bit)),
+        );
+
+        let nested_write_impl_generics_ =
+            add_nested_impl_generics(generics.clone(), &fields, false, true);
+        let (nested_write_impl_impl_generics, _, nested_write_impl_where_clause) =
+            nested_write_impl_generics_.split_for_impl();
+
+        let nested_write_ty_ident = format_ident!("__Nested_Write_{ident}");
+        let nested_write_generics = add_nested_generics(nested_write_impl_generics_.clone());
+        let (nested_write_impl_generics, nested_write_ty_generics, nested_write_where_clause) =
+            nested_write_generics.split_for_impl();
+        let nested_write_ty_impl = impl_bitfield_ty(
+            &nested_outer_attrs,
+            &Visibility::Public(Default::default()),
+            &nested_write_ty_ident,
+            &nested_write_generics,
+            generics.type_params(),
+            &Visibility::Inherited,
+            &TypeReference {
+                and_token: Default::default(),
+                lifetime: Some(nested_storage_lifetime.clone()),
+                mutability: Some(Default::default()),
+                elem: Box::new(nested_storage_deref_ty.clone()),
+            }
+            .into(),
+            &nested_storage_deref,
+            &nested_storage_deref_ty,
+            &storage_ty_bits,
+            storage_ty_bits_are_const,
+            &fields,
+            false,
             true,
             false,
             Some((&nested_start_bit, &nested_end_bit)),
@@ -1792,8 +1877,29 @@ pub fn bitfield(input: TokenStream) -> TokenStream {
                 }
             }
 
+            impl #nested_write_impl_impl_generics ::proc_bitfield::NestableWriteBitfield<
+                _Storage, START, END
+            >
+                for #ty #nested_write_impl_where_clause
+            {
+                type NestedWrite<'_storage> =
+                    #nested_write_ty_ident #nested_write_ty_generics where _Storage: '_storage;
+            }
+
+            impl #nested_write_impl_generics const ::proc_bitfield::__private::NestedWriteBitfield<
+                '_storage, _Storage
+            >
+                for #nested_write_ty_ident #nested_write_ty_generics #nested_write_where_clause
+            {
+                #[inline(always)]
+                fn __from_storage(storage: &'_storage mut _Storage) -> Self {
+                    Self::__from_storage(storage)
+                }
+            }
+
             #nested_ty_impl
             #nested_mut_ty_impl
+            #nested_write_ty_impl
         }
     };
     #[cfg(not(feature = "gce"))]

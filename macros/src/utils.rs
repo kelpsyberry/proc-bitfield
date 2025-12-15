@@ -4,7 +4,10 @@ use std::cell::Cell;
 use proc_macro2::Span;
 use quote::{format_ident, quote};
 use syn::{
-    braced, bracketed, parenthesized, parse::{Parse, ParseBuffer, ParseStream}, punctuated::Punctuated, Ident, Result
+    braced, bracketed, parenthesized,
+    parse::{Parse, ParseBuffer, ParseStream},
+    punctuated::Punctuated,
+    Ident, Result,
 };
 #[cfg(feature = "gce")]
 use syn::{

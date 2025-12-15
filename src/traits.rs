@@ -19,6 +19,13 @@ pub trait NestableMutBitfield<S, const START: usize, const END: usize> {
         S: 'a;
 }
 
+#[cfg(feature = "gce")]
+pub trait NestableWriteBitfield<S, const START: usize, const END: usize> {
+    type NestedWrite<'a>: crate::__private::NestedWriteBitfield<'a, S>
+    where
+        S: 'a;
+}
+
 const_trait! {
     /// Read a range of bits inside a value.
     pub trait Bits<T> {
